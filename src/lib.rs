@@ -1,6 +1,7 @@
 use ncurses::*;
 use std::cmp::min;
 use std::fmt;
+use std::iter::Peekable;
 
 /*
  * Screen:
@@ -9,7 +10,7 @@ use std::fmt;
  * + get_key
  *
  * Menu:
- * + new(Iterable)
+ * + new(Iterator)
  * + show
  */
 
@@ -22,7 +23,6 @@ struct Item {
 
 impl Item {
     fn new<'a>(thing: &impl fmt::Display, icon: &'static str, chosen_icon: &'static str) -> Item {
-        // let repr = format!("{} {}", icon, thing);
         Item {
             icon,
             chosen_icon,
@@ -129,18 +129,6 @@ impl Screen {
         }
     }
 
-    fn get_size(&self, size: &mut ScreenSize) {
-        getmaxyx(stdscr(), &mut size.y, &mut size.x);
-    }
-
-    fn _wait_for_key(&self, key: i32) {
-        loop {
-            if getch() == key {
-                break;
-            }
-        }
-    }
-
     fn get_key(&self) -> i32 {
         getch()
     }
@@ -190,9 +178,12 @@ struct MenuConfig {
     multiselect: bool,
 }
 
-pub struct Menu {
-    list: Vec<String>,
-    // list: Vec<Item<'a>>,
+pub struct Menu<I, D>
+where
+    D: fmt::Display,
+    I: Iterator<Item = D>,
+{
+    iter: Peekable<I>,
     screen: Screen,
     item_icon: &'static str,
     chosen_item_icon: &'static str,
@@ -206,15 +197,20 @@ pub struct Menu {
 use MenuReturnCode::{Done, Pass};
 
 type RetCode = MenuReturnCode;
-impl Menu {
-    pub fn new(list: Vec<String>) -> Menu {
+
+impl<I, D> Menu<I, D>
+where
+    D: fmt::Display,
+    I: Iterator<Item = D>,
+{
+    pub fn new(iter: I) -> Menu<I, D> {
         let screen = Screen::new();
 
         let item_icon: &'static str = "❯";
         let chosen_item_icon: &'static str = "~";
 
         Menu {
-            list,
+            iter: iter.peekable(),
             screen,
             item_icon: &item_icon,
             chosen_item_icon: &chosen_item_icon,
@@ -238,10 +234,8 @@ impl Menu {
     }
 
     pub fn show(&mut self) -> Vec<usize> {
-        let mut size = ScreenSize { y: -1, x: -1 };
         self.screen.show();
-        self.screen.get_size(&mut size);
-        self.state.range.1 = min(self.list.len(), size.y as usize);
+        self.state.range.1 = self.screen.max_y();
 
         self.refresh();
 
@@ -268,23 +262,23 @@ impl Menu {
     }
 
     fn refresh(&mut self) {
-        let mut size = ScreenSize { y: -1, x: -1 };
-        self.screen.get_size(&mut size);
-
-        let slice = self.state.range.0..self.state.range.1;
-        for (row, i) in slice.enumerate() {
-            // TODO: compare sizes instead of retrieving value
-            if let None = self.state.items.get(i) {
-                self.state.items.push(Item::new(
-                    &self.list[i],
-                    self.item_icon,
-                    self.chosen_item_icon,
-                ));
+        let (start, end) = self.state.range;
+        while self.state.items.len() < end {
+            if let Some(item) = self.iter.next() {
+                self.state
+                    .items
+                    .push(Item::new(&item, self.item_icon, self.chosen_item_icon));
+            } else {
+                break;
             }
-            let item = &self.state.items[i];
+        }
+
+        let max_y = self.screen.max_y();
+        let last = min(end, self.state.items.len());
+        for (row, i) in (start..last).enumerate() {
             self.screen
-                .write_item(row as i32, item, self.state.row == row);
-            if row > size.y as usize {
+                .write_item(row as i32, &self.state.items[i], self.state.row == row);
+            if row > max_y {
                 break;
             }
         }
@@ -324,8 +318,6 @@ impl Menu {
         Pass
     }
 
-    // fn multiselect_item(&self) {}
-
     fn scroll(&mut self, amount: i32) {
         self.state.range.0 = ((self.state.range.0 as i32) + amount) as usize;
         self.state.range.1 = ((self.state.range.1 as i32) + amount) as usize;
@@ -333,7 +325,10 @@ impl Menu {
 
     fn move_selection(&mut self, amount: i32) -> RetCode {
         let max_y = self.screen.max_y() as f64;
-        if self.state.row > (max_y * 0.67) as usize && self.state.range.1 < self.list.len() {
+
+        if self.state.row > (max_y * 0.67) as usize
+            && (self.state.range.1 < self.state.items.len() || !self.iter_finished())
+        {
             self.scroll(1);
             self.state.row -= 1;
         } else if self.state.row < (max_y * 0.33) as usize && self.state.range.0 > 0 {
@@ -342,11 +337,19 @@ impl Menu {
         }
 
         let next_row = ((self.state.row as i32) + amount) as usize;
-        if next_row < min(self.list.len(), self.screen.max_y()) {
+        if next_row < min(self.state.items.len(), self.screen.max_y()) {
             self.state.row = next_row;
         }
 
         Pass
+    }
+
+    fn iter_finished(&mut self) -> bool {
+        if let None = self.iter.peek() {
+            true
+        } else {
+            false
+        }
     }
 }
 
