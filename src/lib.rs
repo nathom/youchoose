@@ -1,5 +1,4 @@
 use ncurses::*;
-use std::cmp::min;
 use std::fmt;
 use std::iter::Peekable;
 
@@ -58,30 +57,43 @@ impl fmt::Display for Item {
     }
 }
 
-struct ScreenSize {
+struct Pair {
     y: i32,
     x: i32,
 }
 
-impl ScreenSize {
-    fn new() -> ScreenSize {
-        ScreenSize { y: -1, x: -1 }
+impl Pair {
+    fn new() -> Pair {
+        Pair { y: -1, x: -1 }
     }
 
-    fn update(&mut self) {
+    fn update_size(&mut self) {
         getmaxyx(stdscr(), &mut self.y, &mut self.x);
+    }
+
+    fn update_pos(&mut self) {
+        getyx(stdscr(), &mut self.y, &mut self.x);
     }
 }
 
 struct Screen {
-    size: ScreenSize,
+    size: Pair,
+    pos: Pair,
+    items_on_screen: usize,
 }
 
 impl Screen {
     fn new() -> Screen {
-        let mut size = ScreenSize::new();
-        size.update();
-        Screen { size }
+        let mut size = Pair::new();
+        let mut pos = Pair::new();
+        size.update_size();
+        pos.update_pos();
+
+        Screen {
+            size,
+            pos,
+            items_on_screen: 0,
+        }
     }
 
     fn show(&self) {
@@ -109,8 +121,11 @@ impl Screen {
         keypad(stdscr(), true);
     }
 
-    fn write_item(&self, row: i32, item: &Item, highlight: bool) {
-        mv(row, 0);
+    fn write_item(&mut self, item: &Item, highlight: bool) -> bool {
+        mv((self.curr_y() + 1) as i32, 0);
+        if self.curr_y() == self.max_y() - 1 {
+            return false;
+        }
 
         let icon_color = if item.chosen() { 3 } else { 2 };
         attron(COLOR_PAIR(icon_color));
@@ -127,6 +142,10 @@ impl Screen {
         if highlight {
             attroff(COLOR_PAIR(1));
         }
+
+        self.items_on_screen += 1;
+
+        true
     }
 
     fn get_key(&self) -> i32 {
@@ -142,13 +161,28 @@ impl Screen {
     }
 
     fn max_y(&mut self) -> usize {
-        self.size.update();
+        self.size.update_size();
         self.size.y as usize
     }
 
     fn _max_x(&mut self) -> usize {
-        self.size.update();
+        self.size.update_size();
         self.size.x as usize
+    }
+
+    fn curr_y(&mut self) -> usize {
+        self.pos.update_pos();
+        self.pos.y as usize
+    }
+
+    fn _curr_x(&mut self) -> usize {
+        self.pos.update_pos();
+        self.pos.x as usize
+    }
+
+    fn reset_pos(&mut self) {
+        mv(0, 0);
+        self.items_on_screen = 0;
     }
 
     fn end(&self) {
@@ -162,8 +196,8 @@ enum MenuReturnCode {
 }
 
 struct MenuState {
-    row: usize,
-    range: (usize, usize),
+    hover: usize,
+    start: usize,
     items: Vec<Item>,
 }
 
@@ -224,8 +258,8 @@ where
             },
 
             state: MenuState {
-                row: 0,
-                range: (0, 0),
+                hover: 0,
+                start: 0,
                 items: Vec::new(),
             },
 
@@ -235,8 +269,6 @@ where
 
     pub fn show(&mut self) -> Vec<usize> {
         self.screen.show();
-        self.state.range.1 = self.screen.max_y();
-
         self.refresh();
 
         loop {
@@ -246,7 +278,9 @@ where
                 val => {
                     self.screen.erase();
                     match self.handle_key(val) {
-                        Pass => self.refresh(),
+                        Pass => {
+                            self.refresh();
+                        }
                         Done => break,
                     }
                 }
@@ -261,24 +295,33 @@ where
         self.selection.clone()
     }
 
-    fn refresh(&mut self) {
-        let (start, end) = self.state.range;
-        while self.state.items.len() < end {
+    fn yield_item(&mut self, i: usize) -> Option<&Item> {
+        while self.state.items.len() <= i {
             if let Some(item) = self.iter.next() {
                 self.state
                     .items
                     .push(Item::new(&item, self.item_icon, self.chosen_item_icon));
             } else {
-                break;
+                return None;
             }
         }
+        Some(&self.state.items[i])
+    }
 
-        let max_y = self.screen.max_y();
-        let last = min(end, self.state.items.len());
-        for (row, i) in (start..last).enumerate() {
-            self.screen
-                .write_item(row as i32, &self.state.items[i], self.state.row == row);
-            if row > max_y {
+    fn refresh(&mut self) {
+        let end = self.state.start + self.screen.max_y();
+        self.yield_item(end);
+
+        self.screen.reset_pos();
+        let mut i = self.state.start;
+        let pos = self.state.hover + i;
+        loop {
+            if let Some(item) = self.state.items.get(i) {
+                if !self.screen.write_item(&item, pos == i) {
+                    break;
+                }
+                i += 1;
+            } else {
                 break;
             }
         }
@@ -301,7 +344,7 @@ where
     }
 
     fn select_item(&mut self) -> RetCode {
-        let curr_item_idx = self.state.range.0 + self.state.row;
+        let curr_item_idx = self.state.start + self.state.hover;
         match self.selection.last() {
             Some(&num) if num == curr_item_idx => return Done,
             _ => (),
@@ -312,44 +355,32 @@ where
     }
 
     fn multiselect_item(&mut self) -> RetCode {
-        let curr_item_idx = self.state.range.0 + self.state.row;
+        let curr_item_idx = self.state.start + self.state.hover;
         self.state.items[curr_item_idx].select();
         self.selection.push(curr_item_idx);
         Pass
     }
 
     fn scroll(&mut self, amount: i32) {
-        self.state.range.0 = ((self.state.range.0 as i32) + amount) as usize;
-        self.state.range.1 = ((self.state.range.1 as i32) + amount) as usize;
+        self.state.start = ((self.state.start as i32) + amount) as usize;
+        assert!(self.state.start < 1_000_000);
     }
 
     fn move_selection(&mut self, amount: i32) -> RetCode {
-        let max_y = self.screen.max_y() as f64;
+        let num_items = self.screen.items_on_screen as f64;
+        let new_hover = ((self.state.hover as i32) + amount) as f64;
+        self.state.hover = new_hover as usize;
 
-        if self.state.row > (max_y * 0.67) as usize
-            && (self.state.range.1 < self.state.items.len() || !self.iter_finished())
+        if new_hover > num_items * 0.67
+            && self.state.start + self.screen.items_on_screen < self.state.items.len()
         {
             self.scroll(1);
-            self.state.row -= 1;
-        } else if self.state.row < (max_y * 0.33) as usize && self.state.range.0 > 0 {
+            self.state.hover -= 1;
+        } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
             self.scroll(-1);
-            self.state.row += 1;
+            self.state.hover += 1;
         }
-
-        let next_row = ((self.state.row as i32) + amount) as usize;
-        if next_row < min(self.state.items.len(), self.screen.max_y()) {
-            self.state.row = next_row;
-        }
-
         Pass
-    }
-
-    fn iter_finished(&mut self) -> bool {
-        if let None = self.iter.peek() {
-            true
-        } else {
-            false
-        }
     }
 }
 
