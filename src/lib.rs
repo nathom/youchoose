@@ -1,5 +1,10 @@
 use ncurses::*;
+use std::cmp::min;
 use std::fmt;
+use std::fs;
+use std::fs::OpenOptions;
+use std::io;
+use std::io::prelude::*;
 use std::iter::Peekable;
 
 /*
@@ -74,29 +79,83 @@ impl Pair {
     fn update_pos(&mut self) {
         getyx(stdscr(), &mut self.y, &mut self.x);
     }
+
+    fn clone(&self) -> Pair {
+        Pair {
+            y: self.y,
+            x: self.x,
+        }
+    }
+}
+
+enum ScreenSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl ScreenSide {
+    fn get_bounds(&self, size: Pair, width: f64) -> (Pair, Pair) {
+        assert!(width < 1.0 && width > 0.0);
+        match self {
+            Self::Top => (
+                Pair { y: 0, x: 0 },
+                Pair {
+                    y: ((size.y as f64) * width) as i32,
+                    x: size.x,
+                },
+            ),
+            Self::Bottom => (
+                Pair {
+                    y: ((size.y as f64) * (1.0 - width)) as i32,
+                    x: 0,
+                },
+                size.clone(),
+            ),
+            Self::Left => (
+                Pair { y: 0, x: 0 },
+                Pair {
+                    y: size.y,
+                    x: ((size.x as f64) * width) as i32,
+                },
+            ),
+            Self::Right => (
+                Pair {
+                    y: 0,
+                    x: ((size.x as f64) * (1.0 - width)) as i32,
+                },
+                size.clone(),
+            ),
+        }
+    }
 }
 
 struct Screen {
-    size: Pair,
+    bounds: (Pair, Pair),
     pos: Pair,
     items_on_screen: usize,
+    side: ScreenSide,
+    width: f64,
 }
 
 impl Screen {
-    fn new() -> Screen {
-        let mut size = Pair::new();
-        let mut pos = Pair::new();
-        size.update_size();
-        pos.update_pos();
+    fn new(side: ScreenSide, width: f64) -> Screen {
+        assert!(width > 0.0 && width <= 1.0);
+
+        let bounds = (Pair { y: 0, x: 0 }, Pair { y: 0, x: 0 });
+        let pos = Pair { y: 0, x: 0 };
 
         Screen {
-            size,
+            bounds,
             pos,
             items_on_screen: 0,
+            side,
+            width,
         }
     }
 
-    fn show(&self) {
+    fn show(&mut self) {
         // Allow unicode characters
         let locale_conf = LcCategory::all;
         setlocale(locale_conf, "en_US.UTF-8");
@@ -119,25 +178,33 @@ impl Screen {
 
         raw();
         keypad(stdscr(), true);
+
+        self.bounds = self.side.get_bounds(Self::get_size(), self.width);
     }
 
     fn write_item(&mut self, item: &Item, highlight: bool) -> bool {
-        mv((self.curr_y() + 1) as i32, 0);
-        if self.curr_y() == self.max_y() - 1 {
+        self.skiplines(1);
+
+        if self.pos.y == self.bounds.1.y - 1 {
             return false;
         }
 
         let icon_color = if item.chosen() { 3 } else { 2 };
+
         attron(COLOR_PAIR(icon_color));
-        addstr(item.icon());
+        attron(A_BOLD());
+
+        self.addstr(item.icon());
+        self.addch(' ');
+
+        attroff(A_BOLD());
         attroff(COLOR_PAIR(icon_color));
-        addch(' ' as u32);
 
         if highlight {
             attron(COLOR_PAIR(1));
         }
 
-        addstr(item.string());
+        self.addstr(item.string());
 
         if highlight {
             attroff(COLOR_PAIR(1));
@@ -161,32 +228,56 @@ impl Screen {
     }
 
     fn max_y(&mut self) -> usize {
-        self.size.update_size();
-        self.size.y as usize
+        self.bounds.1.y as usize
     }
 
     fn _max_x(&mut self) -> usize {
-        self.size.update_size();
-        self.size.x as usize
+        self.bounds.1.x as usize
     }
 
     fn curr_y(&mut self) -> usize {
-        self.pos.update_pos();
         self.pos.y as usize
     }
 
     fn _curr_x(&mut self) -> usize {
-        self.pos.update_pos();
         self.pos.x as usize
     }
 
     fn reset_pos(&mut self) {
-        mv(0, 0);
+        self.pos.y = self.bounds.0.y;
+        self.pos.x = self.bounds.0.x;
         self.items_on_screen = 0;
     }
 
     fn end(&self) {
         endwin();
+    }
+
+    fn get_size() -> Pair {
+        let mut size = Pair { y: 0, x: 0 };
+        getmaxyx(stdscr(), &mut size.y, &mut size.x);
+        size
+    }
+
+    fn addstr(&mut self, s: &str) {
+        for c in s.chars() {
+            mvaddch(self.pos.y, self.pos.x, c as u32);
+            self.pos.x += 1;
+            if self.pos.x >= self.bounds.1.x {
+                self.pos.x = self.bounds.0.x;
+                self.pos.y += 1;
+            }
+        }
+    }
+
+    fn addch(&mut self, c: char) {
+        mvaddch(self.pos.y, self.pos.x, c as u32);
+        self.pos.x += 1;
+    }
+
+    fn skiplines(&mut self, n: i32) {
+        self.pos.y += n;
+        self.pos.x = self.bounds.0.x;
     }
 }
 
@@ -219,6 +310,7 @@ where
 {
     iter: Peekable<I>,
     screen: Screen,
+    preview_screen: Screen,
     item_icon: &'static str,
     chosen_item_icon: &'static str,
     selection: Vec<usize>,
@@ -238,14 +330,16 @@ where
     I: Iterator<Item = D>,
 {
     pub fn new(iter: I) -> Menu<I, D> {
-        let screen = Screen::new();
+        let screen = Screen::new(ScreenSide::Top, 0.5);
+        let preview_screen = Screen::new(ScreenSide::Right, 0.4);
 
-        let item_icon: &'static str = "❯";
+        let item_icon: &'static str = ">";
         let chosen_item_icon: &'static str = "~";
 
         Menu {
             iter: iter.peekable(),
             screen,
+            preview_screen,
             item_icon: &item_icon,
             chosen_item_icon: &chosen_item_icon,
             selection: Vec::new(),
@@ -374,14 +468,28 @@ where
         if new_hover > num_items * 0.67
             && self.state.start + self.screen.items_on_screen < self.state.items.len()
         {
+            log("scrolling down");
             self.scroll(1);
             self.state.hover -= 1;
         } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
+            log("scrolling up");
             self.scroll(-1);
             self.state.hover += 1;
+        } else {
+            log("not scrolling");
         }
         Pass
     }
+}
+
+fn log(s: &str) -> std::io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open("choose.log")
+        .unwrap();
+    writeln!(file, "{}", s)?;
+    Ok(())
 }
 
 #[cfg(test)]
