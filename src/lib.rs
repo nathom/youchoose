@@ -1,9 +1,6 @@
 use ncurses::*;
-use std::cmp::min;
 use std::fmt;
-use std::fs;
 use std::fs::OpenOptions;
-use std::io;
 use std::io::prelude::*;
 use std::iter::Peekable;
 
@@ -88,45 +85,61 @@ impl Pair {
     }
 }
 
+impl fmt::Display for Pair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pair({}, {})", self.y, self.x)
+    }
+}
+
 enum ScreenSide {
     Left,
     Right,
     Top,
     Bottom,
+    Full,
 }
 
 impl ScreenSide {
-    fn get_bounds(&self, size: Pair, width: f64) -> (Pair, Pair) {
-        assert!(width < 1.0 && width > 0.0);
+    fn get_bounds(&self, screen_bounds: (Pair, Pair), width: f64) -> (Pair, Pair) {
+        assert!(width <= 1.0 && width > 0.0);
         match self {
             Self::Top => (
-                Pair { y: 0, x: 0 },
+                screen_bounds.0,
                 Pair {
-                    y: ((size.y as f64) * width) as i32,
-                    x: size.x,
+                    y: ((screen_bounds.1.y as f64) * width) as i32,
+                    x: screen_bounds.1.x,
                 },
             ),
             Self::Bottom => (
+                // TL: height * (1 - width) + 1
+                // BR: BR
                 Pair {
-                    y: ((size.y as f64) * (1.0 - width)) as i32,
-                    x: 0,
+                    y: (((screen_bounds.1.y - screen_bounds.0.y) as f64) * (1.0 - width)) as i32
+                        + 1,
+                    x: screen_bounds.0.x,
                 },
-                size.clone(),
+                screen_bounds.1,
             ),
             Self::Left => (
-                Pair { y: 0, x: 0 },
+                // TL: TL
+                // BR: screen_width * width
+                screen_bounds.0.clone(),
                 Pair {
-                    y: size.y,
-                    x: ((size.x as f64) * width) as i32,
+                    y: screen_bounds.1.y,
+                    x: (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
                 },
             ),
             Self::Right => (
+                // TL: screen_width * (1 - width) + 1
+                // BR: BR
                 Pair {
-                    y: 0,
-                    x: ((size.x as f64) * (1.0 - width)) as i32,
+                    y: screen_bounds.0.y,
+                    x: (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
+                        + 1,
                 },
-                size.clone(),
+                screen_bounds.1.clone(),
             ),
+            Self::Full => screen_bounds,
         }
     }
 }
@@ -156,36 +169,18 @@ impl Screen {
     }
 
     fn show(&mut self) {
-        // Allow unicode characters
-        let locale_conf = LcCategory::all;
-        setlocale(locale_conf, "en_US.UTF-8");
-        // Create curses screen
-        initscr();
-        // Use default color background
-        use_default_colors();
-        // Do not show typed characters on screen
-        noecho();
-        // Allow colors
-        start_color();
-        // Color used to highlight hovered selection
-        init_pair(1, COLOR_BLACK, COLOR_WHITE);
-        // -1 means default background
-        init_pair(2, COLOR_RED, -1);
-        init_pair(3, COLOR_GREEN, -1);
-
-        // Hide cursor
-        curs_set(CURSOR_VISIBILITY::CURSOR_INVISIBLE);
-
-        raw();
-        keypad(stdscr(), true);
-
-        self.bounds = self.side.get_bounds(Self::get_size(), self.width);
+        self.bounds = self
+            .side
+            .get_bounds((Pair { y: 0, x: 0 }, Self::get_size()), self.width);
+        log(&format!("bounds: {}, {}", self.bounds.0, self.bounds.1));
+        log(&format!("size: {}", Self::get_size()));
     }
 
     fn write_item(&mut self, item: &Item, highlight: bool) -> bool {
         self.skiplines(1);
 
-        if self.pos.y == self.bounds.1.y - 1 {
+        if self.pos.y >= self.bounds.1.y - 1 {
+            log(&format!("pos: {}, bound: {}", self.pos.y, self.bounds.1.y));
             return false;
         }
 
@@ -213,6 +208,45 @@ impl Screen {
         self.items_on_screen += 1;
 
         true
+    }
+
+    fn draw_box(&mut self, side: ScreenSide, width: f64) {
+        let bounds = side.get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
+        let box_width = (bounds.1.x - bounds.0.x) as usize;
+        let box_height = (bounds.1.y - bounds.0.y) as usize;
+
+        let hor_line = '─';
+        let vert_line = '│';
+        let corner_tl = '┌';
+        let corner_bl = '└';
+        let corner_tr = '┐';
+        let corner_br = '┘';
+
+        // top line
+        self.pos.x = bounds.0.x;
+        self.pos.y = bounds.0.y;
+        // self.addch(corner_tl);
+        mv(self.pos.y, self.pos.x);
+        addstr(&format!(
+            "{}",
+            String::from_utf8(vec![corner_tl as u8]).unwrap()
+        ));
+        self.addstr(&hor_line.to_string().repeat(box_width - 2));
+        self.addch(corner_tr);
+
+        // vertical lines
+        // accessing curses directly
+        for row in bounds.0.y + 1..bounds.1.y {
+            mvaddch(row, bounds.0.x, vert_line as u32);
+            mvaddch(row, bounds.1.x, vert_line as u32);
+        }
+
+        // bottom line
+        self.pos.x = bounds.1.x;
+        self.pos.y = bounds.1.y;
+        self.addch(corner_bl);
+        self.addstr(&hor_line.to_string().repeat(box_width - 2));
+        self.addch(corner_br);
     }
 
     fn get_key(&self) -> i32 {
@@ -247,10 +281,6 @@ impl Screen {
         self.pos.y = self.bounds.0.y;
         self.pos.x = self.bounds.0.x;
         self.items_on_screen = 0;
-    }
-
-    fn end(&self) {
-        endwin();
     }
 
     fn get_size() -> Pair {
@@ -330,8 +360,8 @@ where
     I: Iterator<Item = D>,
 {
     pub fn new(iter: I) -> Menu<I, D> {
-        let screen = Screen::new(ScreenSide::Top, 0.5);
-        let preview_screen = Screen::new(ScreenSide::Right, 0.4);
+        let screen = Screen::new(ScreenSide::Left, 0.5);
+        let preview_screen = Screen::new(ScreenSide::Right, 0.5);
 
         let item_icon: &'static str = ">";
         let chosen_item_icon: &'static str = "~";
@@ -362,7 +392,11 @@ where
     }
 
     pub fn show(&mut self) -> Vec<usize> {
+        init_curses();
+
         self.screen.show();
+        self.preview_screen.show();
+        self.preview_screen.draw_box(ScreenSide::Full, 1.0);
         self.refresh();
 
         loop {
@@ -381,7 +415,7 @@ where
             }
         }
 
-        self.screen.end();
+        end_curses();
         self.finish()
     }
 
@@ -407,6 +441,7 @@ where
         self.yield_item(end);
 
         self.screen.reset_pos();
+        self.preview_screen.reset_pos();
         let mut i = self.state.start;
         let pos = self.state.hover + i;
         loop {
@@ -414,6 +449,9 @@ where
                 if !self.screen.write_item(&item, pos == i) {
                     break;
                 }
+                // if !self.preview_screen.write_item(&item, pos == i) {
+                //     break;
+                // }
                 i += 1;
             } else {
                 break;
@@ -421,6 +459,7 @@ where
         }
 
         self.screen.refresh();
+        // self.preview_screen.refresh();
     }
 
     fn handle_key(&mut self, val: i32) -> RetCode {
@@ -463,21 +502,23 @@ where
     fn move_selection(&mut self, amount: i32) -> RetCode {
         let num_items = self.screen.items_on_screen as f64;
         let new_hover = ((self.state.hover as i32) + amount) as f64;
+
+        if new_hover < 0.0 || new_hover == num_items {
+            return Pass;
+        }
+
         self.state.hover = new_hover as usize;
 
         if new_hover > num_items * 0.67
             && self.state.start + self.screen.items_on_screen < self.state.items.len()
         {
-            log("scrolling down");
             self.scroll(1);
             self.state.hover -= 1;
         } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
-            log("scrolling up");
             self.scroll(-1);
             self.state.hover += 1;
-        } else {
-            log("not scrolling");
         }
+
         Pass
     }
 }
@@ -490,6 +531,35 @@ fn log(s: &str) -> std::io::Result<()> {
         .unwrap();
     writeln!(file, "{}", s)?;
     Ok(())
+}
+
+fn init_curses() {
+    // Allow unicode characters
+    let locale_conf = LcCategory::all;
+    setlocale(locale_conf, "en_US.UTF-8");
+    // Create curses screen
+    initscr();
+    // Use default color background
+    use_default_colors();
+    // Do not show typed characters on screen
+    noecho();
+    // Allow colors
+    start_color();
+    // Color used to highlight hovered selection
+    init_pair(1, COLOR_BLACK, COLOR_WHITE);
+    // -1 means default background
+    init_pair(2, COLOR_RED, -1);
+    init_pair(3, COLOR_GREEN, -1);
+
+    // Hide cursor
+    curs_set(CURSOR_VISIBILITY::CURSOR_INVISIBLE);
+
+    raw();
+    keypad(stdscr(), true);
+}
+
+fn end_curses() {
+    endwin();
 }
 
 #[cfg(test)]
