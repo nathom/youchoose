@@ -3,6 +3,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::iter::Peekable;
+use std::ops;
 use std::str::Chars;
 
 use ncurses::*;
@@ -88,7 +89,7 @@ impl fmt::Display for Pair {
 }
 
 #[derive(Copy, Clone)]
-enum ScreenSide {
+pub enum ScreenSide {
     Left,
     Right,
     Top,
@@ -139,6 +140,19 @@ impl ScreenSide {
                 screen_bounds.1.clone(),
             ),
             Self::Full => screen_bounds,
+        }
+    }
+}
+
+impl ops::Not for ScreenSide {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            Self::Top => Self::Bottom,
+            Self::Bottom => Self::Top,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Full => Self::Full,
         }
     }
 }
@@ -338,6 +352,14 @@ impl Screen {
         self.pos.y += n;
         self.pos.x = self.bounds.0.x;
     }
+
+    fn set_side(&mut self, new_side: ScreenSide) {
+        self.side = new_side;
+    }
+
+    fn set_width(&mut self, new_size: f64) {
+        self.width = new_size;
+    }
 }
 
 enum MenuReturnCode {
@@ -381,8 +403,6 @@ where
     }
 }
 
-// type DispFunc = Box<dyn Fn(dyn fmt::Display) -> String>;
-
 struct Preview<D>
 where
     D: fmt::Display,
@@ -391,23 +411,21 @@ where
     box_screen: Screen,
     screen: Screen,
     side: ScreenSide,
-    size: f64,
+    width: f64,
 }
 
 impl<D> Preview<D>
 where
     D: fmt::Display,
 {
-    fn new(func: DispFunc<D>) -> Preview<D> {
-        let side = ScreenSide::Right;
-        let size = 0.5;
-        let box_screen = Screen::new(side, size);
-        let screen = Screen::new(side, size);
+    fn new(func: DispFunc<D>, side: ScreenSide, width: f64) -> Preview<D> {
+        let box_screen = Screen::new(side, width);
+        let screen = Screen::new(side, width);
 
         Preview {
             func,
             side,
-            size,
+            width,
             box_screen,
             screen,
         }
@@ -424,6 +442,13 @@ where
         self.screen.bounds.0.x += 1;
         self.screen.bounds.1.y -= 1;
         self.screen.bounds.1.x -= 1;
+    }
+
+    fn change_pos(&mut self, side: ScreenSide, width: f64) {
+        self.side = side;
+        self.width = width;
+        self.box_screen = Screen::new(side, width);
+        self.screen = Screen::new(side, width);
     }
 }
 
@@ -454,7 +479,7 @@ where
     I: Iterator<Item = D>,
 {
     pub fn new(iter: I) -> Menu<I, D> {
-        let screen = Screen::new(ScreenSide::Left, 0.5);
+        let screen = Screen::new(ScreenSide::Full, 0.5);
 
         let item_icon: &'static str = ">";
         let chosen_item_icon: &'static str = "~";
@@ -632,12 +657,19 @@ where
         Pass
     }
 
-    pub fn preview_func<F>(mut self, func: F) -> Menu<I, D>
+    // CONFIG
+
+    pub fn preview<F>(mut self, func: F) -> Menu<I, D>
     where
         F: Fn(D) -> String + 'static,
     {
         let func = DispFunc::new(Box::new(func));
-        self.preview = Some(Preview::new(func));
+        self.preview = Some(Preview::new(func, ScreenSide::Right, 0.5));
+        self
+    }
+
+    pub fn preview_side(mut self, side: ScreenSide) -> Menu<I, D> {
+        self.preview.as_mut().unwrap().side = side;
         self
     }
 }
