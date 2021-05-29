@@ -1,9 +1,11 @@
-use ncurses::*;
+use std::cmp::min;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::iter::Peekable;
+use std::str::Chars;
 
+use ncurses::*;
 /*
  * Screen:
  * + write_line
@@ -20,6 +22,7 @@ struct Item {
     chosen_icon: &'static str,
     chosen: bool,
     repr: String,
+    preview: Option<String>,
 }
 
 impl Item {
@@ -29,6 +32,7 @@ impl Item {
             chosen_icon,
             chosen: false,
             repr: thing.to_string(),
+            preview: None,
         }
     }
 
@@ -51,6 +55,10 @@ impl Item {
     fn string(&self) -> &String {
         &self.repr
     }
+
+    fn preview<D: fmt::Display>(&mut self, thing: D, func: &DispFunc<D>) {
+        self.preview = Some(func.eval(thing));
+    }
 }
 
 impl fmt::Display for Item {
@@ -65,18 +73,6 @@ struct Pair {
 }
 
 impl Pair {
-    fn new() -> Pair {
-        Pair { y: -1, x: -1 }
-    }
-
-    fn update_size(&mut self) {
-        getmaxyx(stdscr(), &mut self.y, &mut self.x);
-    }
-
-    fn update_pos(&mut self) {
-        getyx(stdscr(), &mut self.y, &mut self.x);
-    }
-
     fn clone(&self) -> Pair {
         Pair {
             y: self.y,
@@ -91,6 +87,7 @@ impl fmt::Display for Pair {
     }
 }
 
+#[derive(Copy, Clone)]
 enum ScreenSide {
     Left,
     Right,
@@ -126,7 +123,8 @@ impl ScreenSide {
                 screen_bounds.0.clone(),
                 Pair {
                     y: screen_bounds.1.y,
-                    x: (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
+                    x: screen_bounds.0.x
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
                 },
             ),
             Self::Right => (
@@ -134,7 +132,8 @@ impl ScreenSide {
                 // BR: BR
                 Pair {
                     y: screen_bounds.0.y,
-                    x: (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
+                    x: screen_bounds.0.x
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
                         + 1,
                 },
                 screen_bounds.1.clone(),
@@ -172,15 +171,15 @@ impl Screen {
         self.bounds = self
             .side
             .get_bounds((Pair { y: 0, x: 0 }, Self::get_size()), self.width);
-        log(&format!("bounds: {}, {}", self.bounds.0, self.bounds.1));
-        log(&format!("size: {}", Self::get_size()));
+        log(&format!("bounds: {}, {}", self.bounds.0, self.bounds.1)).unwrap();
+        log(&format!("size: {}", Self::get_size())).unwrap();
     }
 
     fn write_item(&mut self, item: &Item, highlight: bool) -> bool {
         self.skiplines(1);
 
         if self.pos.y >= self.bounds.1.y - 1 {
-            log(&format!("pos: {}, bound: {}", self.pos.y, self.bounds.1.y));
+            log(&format!("pos: {}, bound: {}", self.pos.y, self.bounds.1.y)).unwrap();
             return false;
         }
 
@@ -212,41 +211,49 @@ impl Screen {
 
     fn draw_box(&mut self, side: ScreenSide, width: f64) {
         let bounds = side.get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
+        log(&format!(
+            "current bounds: {}, {}",
+            self.bounds.0, self.bounds.1
+        ))
+        .unwrap();
+        log(&format!(
+            "drawing box with bounds: {}, {}",
+            bounds.0, bounds.1
+        ))
+        .unwrap();
         let box_width = (bounds.1.x - bounds.0.x) as usize;
-        let box_height = (bounds.1.y - bounds.0.y) as usize;
+        // let box_height = (bounds.1.y - bounds.0.y) as usize;
 
-        let hor_line = '─';
-        let vert_line = '│';
-        let corner_tl = '┌';
-        let corner_bl = '└';
-        let corner_tr = '┐';
-        let corner_br = '┘';
+        let hor_line = "─";
+        let vert_line = "│";
+        let corner_tl = "┌";
+        let corner_bl = "└";
+        let corner_tr = "┐";
+        let corner_br = "┘";
+
+        let preview_box_text = " preview ";
 
         // top line
         self.pos.x = bounds.0.x;
         self.pos.y = bounds.0.y;
-        // self.addch(corner_tl);
-        mv(self.pos.y, self.pos.x);
-        addstr(&format!(
-            "{}",
-            String::from_utf8(vec![corner_tl as u8]).unwrap()
-        ));
-        self.addstr(&hor_line.to_string().repeat(box_width - 2));
-        self.addch(corner_tr);
+        self.addstr(corner_tl);
+        self.addstr(preview_box_text);
+        self.addstr(&hor_line.repeat(box_width - preview_box_text.len() - 2));
+        self.addstr(corner_tr);
 
         // vertical lines
         // accessing curses directly
         for row in bounds.0.y + 1..bounds.1.y {
-            mvaddch(row, bounds.0.x, vert_line as u32);
-            mvaddch(row, bounds.1.x, vert_line as u32);
+            mvaddstr(row, bounds.0.x, vert_line);
+            mvaddstr(row, bounds.1.x - 1, vert_line);
         }
 
         // bottom line
-        self.pos.x = bounds.1.x;
-        self.pos.y = bounds.1.y;
-        self.addch(corner_bl);
+        self.pos.x = bounds.0.x;
+        self.pos.y = bounds.1.y - 1;
+        self.addstr(corner_bl);
         self.addstr(&hor_line.to_string().repeat(box_width - 2));
-        self.addch(corner_br);
+        self.addstr(corner_br);
     }
 
     fn get_key(&self) -> i32 {
@@ -269,14 +276,6 @@ impl Screen {
         self.bounds.1.x as usize
     }
 
-    fn curr_y(&mut self) -> usize {
-        self.pos.y as usize
-    }
-
-    fn _curr_x(&mut self) -> usize {
-        self.pos.x as usize
-    }
-
     fn reset_pos(&mut self) {
         self.pos.y = self.bounds.0.y;
         self.pos.x = self.bounds.0.x;
@@ -290,14 +289,44 @@ impl Screen {
     }
 
     fn addstr(&mut self, s: &str) {
-        for c in s.chars() {
-            mvaddch(self.pos.y, self.pos.x, c as u32);
-            self.pos.x += 1;
-            if self.pos.x >= self.bounds.1.x {
-                self.pos.x = self.bounds.0.x;
+        let mut spaces_left = (self.bounds.1.x - self.pos.x) as usize;
+        let len = s.char_indices().collect::<Vec<_>>().len();
+        log(&format!("adding str: {}, len: {}", s, len)).unwrap();
+
+        if len <= spaces_left {
+            log("string fits").unwrap();
+            mvaddstr(self.pos.y, self.pos.x, s);
+            self.pos.x += len as i32;
+        } else {
+            log("string too long").unwrap();
+            let mut chars: Chars = s.chars();
+            let mut chars_left = len;
+            while chars_left > 0 {
+                log(&format!(
+                    "chars left in word: {}, getting {} chars",
+                    chars_left, spaces_left
+                ))
+                .unwrap();
+
+                let chars_to_get = min(chars_left, spaces_left);
+                let s = &self.get_n(&mut chars, chars_to_get);
+                log(&format!("adding: {}", s)).unwrap();
+                mvaddstr(self.pos.y, self.pos.x, s);
                 self.pos.y += 1;
+                self.pos.x = self.bounds.0.x;
+                chars_left -= chars_to_get;
+                spaces_left = (self.bounds.1.x - self.bounds.0.x) as usize;
             }
+            self.pos.y -= 1;
         }
+    }
+
+    fn get_n(&self, chars: &mut Chars, n: usize) -> String {
+        let mut s = String::new();
+        for _ in 0..n {
+            s.push_str(&chars.next().unwrap().to_string());
+        }
+        s
     }
 
     fn addch(&mut self, c: char) {
@@ -333,14 +362,79 @@ struct MenuConfig {
     multiselect: bool,
 }
 
-pub struct Menu<I, D>
+struct DispFunc<D>
+where
+    D: fmt::Display,
+{
+    func: Box<dyn Fn(D) -> String>,
+}
+
+impl<D> DispFunc<D>
+where
+    D: fmt::Display,
+{
+    fn new(func: Box<dyn Fn(D) -> String>) -> DispFunc<D> {
+        DispFunc { func }
+    }
+    fn eval(&self, param: D) -> String {
+        (*self.func)(param)
+    }
+}
+
+// type DispFunc = Box<dyn Fn(dyn fmt::Display) -> String>;
+
+struct Preview<D>
+where
+    D: fmt::Display,
+{
+    func: DispFunc<D>,
+    box_screen: Screen,
+    screen: Screen,
+    side: ScreenSide,
+    size: f64,
+}
+
+impl<D> Preview<D>
+where
+    D: fmt::Display,
+{
+    fn new(func: DispFunc<D>) -> Preview<D> {
+        let side = ScreenSide::Right;
+        let size = 0.5;
+        let box_screen = Screen::new(side, size);
+        let screen = Screen::new(side, size);
+
+        Preview {
+            func,
+            side,
+            size,
+            box_screen,
+            screen,
+        }
+    }
+
+    fn draw_box(&mut self) {
+        self.box_screen.draw_box(ScreenSide::Full, 1.0);
+    }
+
+    fn show(&mut self) {
+        self.box_screen.show();
+        self.screen.show();
+        self.screen.bounds.0.y += 1;
+        self.screen.bounds.0.x += 1;
+        self.screen.bounds.1.y -= 1;
+        self.screen.bounds.1.x -= 1;
+    }
+}
+
+pub struct Menu<I, D: 'static>
 where
     D: fmt::Display,
     I: Iterator<Item = D>,
 {
     iter: Peekable<I>,
     screen: Screen,
-    preview_screen: Screen,
+    preview: Option<Preview<D>>,
     item_icon: &'static str,
     chosen_item_icon: &'static str,
     selection: Vec<usize>,
@@ -361,7 +455,6 @@ where
 {
     pub fn new(iter: I) -> Menu<I, D> {
         let screen = Screen::new(ScreenSide::Left, 0.5);
-        let preview_screen = Screen::new(ScreenSide::Right, 0.5);
 
         let item_icon: &'static str = ">";
         let chosen_item_icon: &'static str = "~";
@@ -369,7 +462,7 @@ where
         Menu {
             iter: iter.peekable(),
             screen,
-            preview_screen,
+            preview: None,
             item_icon: &item_icon,
             chosen_item_icon: &chosen_item_icon,
             selection: Vec::new(),
@@ -395,8 +488,9 @@ where
         init_curses();
 
         self.screen.show();
-        self.preview_screen.show();
-        self.preview_screen.draw_box(ScreenSide::Full, 1.0);
+        if let Some(prev) = &mut self.preview {
+            prev.show();
+        }
         self.refresh();
 
         loop {
@@ -404,7 +498,9 @@ where
                 27 | 113 => break, // ESC or q
 
                 val => {
+                    // This will erase the entire window
                     self.screen.erase();
+
                     match self.handle_key(val) {
                         Pass => {
                             self.refresh();
@@ -426,9 +522,11 @@ where
     fn yield_item(&mut self, i: usize) -> Option<&Item> {
         while self.state.items.len() <= i {
             if let Some(item) = self.iter.next() {
-                self.state
-                    .items
-                    .push(Item::new(&item, self.item_icon, self.chosen_item_icon));
+                let mut new_item = Item::new(&item, self.item_icon, self.chosen_item_icon);
+                if let Some(preview) = &self.preview {
+                    new_item.preview(item, &preview.func);
+                }
+                self.state.items.push(new_item);
             } else {
                 return None;
             }
@@ -437,11 +535,17 @@ where
     }
 
     fn refresh(&mut self) {
+        // Maximum index that will fit on current screen state
         let end = self.state.start + self.screen.max_y();
         self.yield_item(end);
 
         self.screen.reset_pos();
-        self.preview_screen.reset_pos();
+        if let Some(prev) = &mut self.preview {
+            // prev.screen.reset_pos();
+            prev.draw_box();
+            prev.screen.reset_pos();
+        }
+        // self.preview_screen.reset_pos();
         let mut i = self.state.start;
         let pos = self.state.hover + i;
         loop {
@@ -449,9 +553,12 @@ where
                 if !self.screen.write_item(&item, pos == i) {
                     break;
                 }
-                // if !self.preview_screen.write_item(&item, pos == i) {
-                //     break;
-                // }
+                if pos == i {
+                    if let Some(prev) = &mut self.preview {
+                        prev.screen.addstr(item.preview.as_ref().unwrap());
+                    }
+                }
+
                 i += 1;
             } else {
                 break;
@@ -459,7 +566,10 @@ where
         }
 
         self.screen.refresh();
-        // self.preview_screen.refresh();
+
+        if let Some(prev) = &mut self.preview {
+            prev.screen.refresh();
+        }
     }
 
     fn handle_key(&mut self, val: i32) -> RetCode {
@@ -521,6 +631,15 @@ where
 
         Pass
     }
+
+    pub fn preview_func<F>(mut self, func: F) -> Menu<I, D>
+    where
+        F: Fn(D) -> String + 'static,
+    {
+        let func = DispFunc::new(Box::new(func));
+        self.preview = Some(Preview::new(func));
+        self
+    }
 }
 
 fn log(s: &str) -> std::io::Result<()> {
@@ -533,7 +652,7 @@ fn log(s: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-fn init_curses() {
+pub fn init_curses() {
     // Allow unicode characters
     let locale_conf = LcCategory::all;
     setlocale(locale_conf, "en_US.UTF-8");
@@ -558,7 +677,7 @@ fn init_curses() {
     keypad(stdscr(), true);
 }
 
-fn end_curses() {
+pub fn end_curses() {
     endwin();
 }
 

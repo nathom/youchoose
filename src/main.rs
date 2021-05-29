@@ -5,10 +5,25 @@ fn main() {
                            if the person that was making the menu chose to \
                                add this text it would be nice"
         .split(" ")
-        .map(String::from)
-        .map(|s| s.repeat(20));
+        .map(String::from);
 
-    let mut menu = lib::Menu::new(list);
+    let mut menu = lib::Menu::new(list).preview_func(process);
     let choice = menu.show();
     println!("Chose {:?}", choice);
+}
+
+fn process(s: String) -> String {
+    if s.len() % 2 == 0 {
+        format!(
+            "The word '{}' has an even number of letters. It's length is {}. You're welcome.",
+            s,
+            s.len()
+        )
+    } else {
+        format!(
+            "The word '{}' has an odd number of letters. It's length is {}. You're welcome.",
+            s,
+            s.len()
+        )
+    }
 }
