@@ -3,16 +3,6 @@ use std::iter::Peekable;
 use std::ops;
 
 use ncurses::*;
-/*
- * Screen:
- * + write_line
- * + get_screen_size
- * + get_key
- *
- * Menu:
- * + new(Iterator)
- * + show
- */
 
 pub struct Menu<'a, I, D>
 where
@@ -112,7 +102,8 @@ where
     fn yield_item(&mut self, i: usize) -> Option<&Item> {
         while self.state.items.len() <= i {
             if let Some(item) = self.iter.next() {
-                let mut new_item = Item::new(&item, self.item_icon, self.chosen_item_icon);
+                let mut new_item =
+                    Item::new(&item, self.item_icon, self.chosen_item_icon);
                 if let Some(preview) = &self.preview {
                     new_item.preview(item, &preview.func);
                 }
@@ -131,11 +122,9 @@ where
 
         self.screen.reset_pos();
         if let Some(prev) = &mut self.preview {
-            // prev.screen.reset_pos();
             prev.draw_box();
             prev.screen.reset_pos();
         }
-        // self.preview_screen.reset_pos();
         let mut i = self.state.start;
         let pos = self.state.hover + i;
         loop {
@@ -167,7 +156,9 @@ where
             self.move_selection(1)
         } else if self.keys.up.contains(&val) {
             self.move_selection(-1)
-        } else if self.config.multiselect && self.keys.multiselect.contains(&val) {
+        } else if self.config.multiselect
+            && self.keys.multiselect.contains(&val)
+        {
             self.multiselect_item()
         } else if self.keys.select.contains(&val) {
             self.select_item()
@@ -210,11 +201,15 @@ where
         self.state.hover = new_hover as usize;
 
         if new_hover > num_items * 0.67
-            && self.state.start + self.screen.items_on_screen < self.state.items.len()
+            && self.state.start + self.screen.items_on_screen
+                < self.state.items.len()
         {
             self.scroll(1);
             self.state.hover -= 1;
-        } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
+        } else if new_hover < num_items * 0.33
+            && self.state.start > 0
+            && amount < 0
+        {
             self.scroll(-1);
             self.state.hover += 1;
         }
@@ -320,7 +315,8 @@ impl Screen {
     }
 
     fn draw_box(&mut self, side: ScreenSide, width: f64) {
-        let bounds = side.get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
+        let bounds = side
+            .get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
 
         let box_width = (bounds.1.x - bounds.0.x) as usize;
         // let box_height = (bounds.1.y - bounds.0.y) as usize;
@@ -482,7 +478,11 @@ struct Item<'a> {
 }
 
 impl<'a> Item<'a> {
-    fn new(thing: &impl fmt::Display, icon: &'a str, chosen_icon: &'a str) -> Item<'a> {
+    fn new(
+        thing: &impl fmt::Display,
+        icon: &'a str,
+        chosen_icon: &'a str,
+    ) -> Item<'a> {
         Item {
             icon,
             chosen_icon,
@@ -553,7 +553,11 @@ pub enum ScreenSide {
 }
 
 impl ScreenSide {
-    fn get_bounds(&self, screen_bounds: (Pair, Pair), width: f64) -> (Pair, Pair) {
+    fn get_bounds(
+        &self,
+        screen_bounds: (Pair, Pair),
+        width: f64,
+    ) -> (Pair, Pair) {
         assert!(width <= 1.0 && width > 0.0);
         match self {
             Self::Top => (
@@ -567,7 +571,8 @@ impl ScreenSide {
                 // TL: height * (1 - width) + 1
                 // BR: BR
                 Pair {
-                    y: (((screen_bounds.1.y - screen_bounds.0.y) as f64) * (1.0 - width)) as i32
+                    y: (((screen_bounds.1.y - screen_bounds.0.y) as f64)
+                        * (1.0 - width)) as i32
                         + 1,
                     x: screen_bounds.0.x,
                 },
@@ -580,7 +585,8 @@ impl ScreenSide {
                 Pair {
                     y: screen_bounds.1.y,
                     x: screen_bounds.0.x
-                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64)
+                            * width) as i32,
                 },
             ),
             Self::Right => (
@@ -589,7 +595,8 @@ impl ScreenSide {
                 Pair {
                     y: screen_bounds.0.y,
                     x: screen_bounds.0.x
-                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64)
+                            * (1.0 - width)) as i32
                         + 1,
                 },
                 screen_bounds.1.clone(),
