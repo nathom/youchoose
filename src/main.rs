@@ -1,6 +1,7 @@
 mod lib;
 use std::fs;
 use std::process::Command;
+use std::str;
 
 fn main() {
     // let list = "there is some text that could show up in the menu \
@@ -9,44 +10,57 @@ fn main() {
     //     .split(" ")
     //     .map(String::from);
 
-    let list: = Vec::new();
-    get_files("./".to_string(), list);
+    let list = get_files("./src".to_string());
     let side = lib::ScreenSide::Bottom;
+    // let mapped = list.iter().map(|s| preview_file(s.to_string().clone()));
     let mut menu = lib::Menu::new(list.iter())
         .preview(preview_file)
         .preview_side(side);
     let choice = menu.show();
     println!("Chose {:?}", choice);
+
+    // println!("{:?}", mapped);
 }
 
-fn process(s: String) -> String {
-    if s.len() % 2 == 0 {
-        format!(
-            "The word '{}' has an even number of letters. It's length is {}. You're welcome.",
-            s,
-            s.len()
-        )
-    } else {
-        format!(
-            "The word '{}' has an odd number of letters. It's length is {}. You're welcome.",
-            s,
-            s.len()
-        )
-    }
-}
+// fn process(s: String) -> String {
+//     if s.len() % 2 == 0 {
+//         format!(
+//             "The word '{}' has an even number of letters. It's length is {}. You're welcome.",
+//             s,
+//             s.len()
+//         )
+//     } else {
+//         format!(
+//             "The word '{}' has an odd number of letters. It's length is {}. You're welcome.",
+//             s,
+//             s.len()
+//         )
+//     }
+// }
 
 fn preview_file(s: &String) -> String {
+    if !s.ends_with("rs") {
+        return "".to_string();
+    }
     let output = Command::new("bat")
-        .arg(s)
+        .arg(s.clone())
         .output()
         .expect("Failed to execute command");
-    String::from_utf8(output.stdout).unwrap()
+    let out = str::from_utf8(&output.stdout).expect(&s);
+    // let err = str::from_utf8(&output.stderr).expect(&s);
+    // let stdout = io::stdout();
+    // let mut handle = stdout.lock();
+
+    out.to_string()
+    // handle.write_all(&*output.stdout);
+    // // println!("output: {}, err: {}", out, err);
+    // "".to_string()
 }
 
-fn get_files(dir: String, v: &'static mut Vec<String>) {
+fn get_files(dir: String) -> Vec<String> {
     let paths = fs::read_dir(dir).unwrap();
 
-    // let mut v = Vec::new();
+    let mut v = Vec::new();
     for path in paths {
         v.push(
             path.unwrap()
@@ -57,4 +71,5 @@ fn get_files(dir: String, v: &'static mut Vec<String>) {
                 .to_string(),
         );
     }
+    v
 }
