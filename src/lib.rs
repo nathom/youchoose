@@ -14,143 +14,246 @@ use ncurses::*;
  * + show
  */
 
-struct Item<'a> {
-    icon: &'a str,
-    chosen_icon: &'a str,
-    chosen: bool,
-    repr: String,
-    preview: Option<String>,
+pub struct Menu<'a, I, D>
+where
+    D: fmt::Display,
+    I: Iterator<Item = D>,
+{
+    iter: Peekable<I>,
+    screen: Screen,
+    preview: Option<Preview<D>>,
+    item_icon: &'a str,
+    chosen_item_icon: &'a str,
+    selection: Vec<usize>,
+    keys: Keys,
+
+    state: MenuState<'a>,
+    config: MenuConfig,
 }
 
-impl<'a> Item<'a> {
-    fn new(thing: &impl fmt::Display, icon: &'a str, chosen_icon: &'a str) -> Item<'a> {
-        Item {
-            icon,
-            chosen_icon,
-            chosen: false,
-            repr: thing.to_string(),
+enum MenuReturnCode {
+    Done,
+    Pass,
+}
+use MenuReturnCode::{Done, Pass};
+type RetCode = MenuReturnCode;
+
+impl<'a, I, D> Menu<'a, I, D>
+where
+    D: fmt::Display,
+    I: Iterator<Item = D>,
+{
+    pub fn new(iter: I) -> Menu<'a, I, D> {
+        let screen = Screen::new(ScreenSide::Full, 0.5);
+
+        let item_icon: &'static str = ">";
+        let chosen_item_icon: &'static str = "~";
+
+        Menu {
+            iter: iter.peekable(),
+            screen,
             preview: None,
+            item_icon: &item_icon,
+            chosen_item_icon: &chosen_item_icon,
+            selection: Vec::new(),
+
+            keys: Keys {
+                down: vec![KEY_DOWN, 'j' as i32],
+                up: vec![KEY_UP, 'k' as i32],
+                select: vec![10],
+                multiselect: vec![32],
+            },
+
+            state: MenuState {
+                hover: 0,
+                start: 0,
+                items: Vec::new(),
+            },
+
+            config: MenuConfig { multiselect: true },
         }
     }
 
-    fn select(&mut self) {
-        self.chosen = !self.chosen;
+    pub fn show(&mut self) -> Vec<usize> {
+        init_curses();
+
+        self.screen.show();
+        if let Some(prev) = &mut self.preview {
+            prev.show();
+        }
+        self.refresh();
+
+        loop {
+            match self.screen.get_key() {
+                27 | 113 => break, // ESC or q
+
+                val => {
+                    // This will erase the entire window
+                    self.screen.erase();
+
+                    match self.handle_key(val) {
+                        Pass => {
+                            self.refresh();
+                        }
+                        Done => break,
+                    }
+                }
+            }
+        }
+
+        end_curses();
+        self.finish()
     }
 
-    fn chosen(&self) -> bool {
-        self.chosen
+    fn finish(&self) -> Vec<usize> {
+        self.selection.clone()
     }
 
-    fn icon(&self) -> &str {
-        if self.chosen {
-            self.chosen_icon
+    fn yield_item(&mut self, i: usize) -> Option<&Item> {
+        while self.state.items.len() <= i {
+            if let Some(item) = self.iter.next() {
+                let mut new_item = Item::new(&item, self.item_icon, self.chosen_item_icon);
+                if let Some(preview) = &self.preview {
+                    new_item.preview(item, &preview.func);
+                }
+                self.state.items.push(new_item);
+            } else {
+                return None;
+            }
+        }
+        Some(&self.state.items[i])
+    }
+
+    fn refresh(&mut self) {
+        // Maximum index that will fit on current screen state
+        let end = self.state.start + self.screen.max_y();
+        self.yield_item(end);
+
+        self.screen.reset_pos();
+        if let Some(prev) = &mut self.preview {
+            // prev.screen.reset_pos();
+            prev.draw_box();
+            prev.screen.reset_pos();
+        }
+        // self.preview_screen.reset_pos();
+        let mut i = self.state.start;
+        let pos = self.state.hover + i;
+        loop {
+            if let Some(item) = self.state.items.get(i) {
+                if !self.screen.write_item(&item, pos == i) {
+                    break;
+                }
+                if pos == i {
+                    if let Some(prev) = &mut self.preview {
+                        prev.screen.addstr(item.preview.as_ref().unwrap());
+                    }
+                }
+
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        self.screen.refresh();
+
+        if let Some(prev) = &mut self.preview {
+            prev.refresh();
+        }
+    }
+
+    fn handle_key(&mut self, val: i32) -> RetCode {
+        if self.keys.down.contains(&val) {
+            self.move_selection(1)
+        } else if self.keys.up.contains(&val) {
+            self.move_selection(-1)
+        } else if self.config.multiselect && self.keys.multiselect.contains(&val) {
+            self.multiselect_item()
+        } else if self.keys.select.contains(&val) {
+            self.select_item()
         } else {
-            self.icon
+            Pass
         }
     }
 
-    fn string(&self) -> &String {
-        &self.repr
-    }
-
-    fn preview<D: fmt::Display>(&mut self, thing: D, func: &DispFunc<D>) {
-        self.preview = Some(func.eval(thing));
-    }
-}
-
-impl<'a> fmt::Display for Item<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", format!("{} {}", self.icon(), self.repr))
-    }
-}
-
-struct Pair {
-    y: i32,
-    x: i32,
-}
-
-impl Pair {
-    fn clone(&self) -> Pair {
-        Pair {
-            y: self.y,
-            x: self.x,
+    fn select_item(&mut self) -> RetCode {
+        let curr_item_idx = self.state.start + self.state.hover;
+        match self.selection.last() {
+            Some(&num) if num == curr_item_idx => return Done,
+            _ => (),
         }
+        self.state.items[curr_item_idx].select();
+        self.selection.push(curr_item_idx);
+        Done
     }
-}
 
-impl fmt::Display for Pair {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Pair({}, {})", self.y, self.x)
+    fn multiselect_item(&mut self) -> RetCode {
+        let curr_item_idx = self.state.start + self.state.hover;
+        self.state.items[curr_item_idx].select();
+        self.selection.push(curr_item_idx);
+        Pass
     }
-}
 
-#[derive(Copy, Clone)]
-pub enum ScreenSide {
-    Left,
-    Right,
-    Top,
-    Bottom,
-    Full,
-}
+    fn scroll(&mut self, amount: i32) {
+        self.state.start = ((self.state.start as i32) + amount) as usize;
+        assert!(self.state.start < 1_000_000);
+    }
 
-impl ScreenSide {
-    fn get_bounds(&self, screen_bounds: (Pair, Pair), width: f64) -> (Pair, Pair) {
-        assert!(width <= 1.0 && width > 0.0);
-        match self {
-            Self::Top => (
-                screen_bounds.0,
-                Pair {
-                    y: ((screen_bounds.1.y as f64) * width) as i32,
-                    x: screen_bounds.1.x,
-                },
-            ),
-            Self::Bottom => (
-                // TL: height * (1 - width) + 1
-                // BR: BR
-                Pair {
-                    y: (((screen_bounds.1.y - screen_bounds.0.y) as f64) * (1.0 - width)) as i32
-                        + 1,
-                    x: screen_bounds.0.x,
-                },
-                screen_bounds.1,
-            ),
-            Self::Left => (
-                // TL: TL
-                // BR: screen_width * width
-                screen_bounds.0.clone(),
-                Pair {
-                    y: screen_bounds.1.y,
-                    x: screen_bounds.0.x
-                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
-                },
-            ),
-            Self::Right => (
-                // TL: screen_width * (1 - width) + 1
-                // BR: BR
-                Pair {
-                    y: screen_bounds.0.y,
-                    x: screen_bounds.0.x
-                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
-                        + 1,
-                },
-                screen_bounds.1.clone(),
-            ),
-            Self::Full => screen_bounds,
+    fn move_selection(&mut self, amount: i32) -> RetCode {
+        let num_items = self.screen.items_on_screen as f64;
+        let new_hover = ((self.state.hover as i32) + amount) as f64;
+
+        if new_hover < 0.0 || new_hover == num_items {
+            return Pass;
         }
+
+        self.state.hover = new_hover as usize;
+
+        if new_hover > num_items * 0.67
+            && self.state.start + self.screen.items_on_screen < self.state.items.len()
+        {
+            self.scroll(1);
+            self.state.hover -= 1;
+        } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
+            self.scroll(-1);
+            self.state.hover += 1;
+        }
+
+        Pass
+    }
+
+    // CONFIG
+
+    pub fn preview<F>(mut self, func: F) -> Menu<'a, I, D>
+    where
+        F: Fn(D) -> String + 'static,
+    {
+        let func = DispFunc::new(Box::new(func));
+        self.preview = Some(Preview::new(func, ScreenSide::Right, 0.5));
+        self
+    }
+
+    pub fn preview_side(mut self, side: ScreenSide) -> Menu<'a, I, D> {
+        self.preview.as_mut().unwrap().side = side;
+        self
     }
 }
 
-impl ops::Not for ScreenSide {
-    type Output = Self;
-    fn not(self) -> Self {
-        match self {
-            Self::Top => Self::Bottom,
-            Self::Bottom => Self::Top,
-            Self::Left => Self::Right,
-            Self::Right => Self::Left,
-            Self::Full => Self::Full,
-        }
-    }
+struct MenuState<'a> {
+    hover: usize,
+    start: usize,
+    items: Vec<Item<'a>>,
+}
+
+struct Keys {
+    down: Vec<i32>,
+    up: Vec<i32>,
+    select: Vec<i32>,
+    multiselect: Vec<i32>,
+}
+
+struct MenuConfig {
+    multiselect: bool,
 }
 
 struct Screen {
@@ -370,28 +473,144 @@ impl Screen {
     // }
 }
 
-enum MenuReturnCode {
-    Done,
-    Pass,
+struct Item<'a> {
+    icon: &'a str,
+    chosen_icon: &'a str,
+    chosen: bool,
+    repr: String,
+    preview: Option<String>,
 }
 
-struct MenuState<'a> {
-    hover: usize,
-    start: usize,
-    items: Vec<Item<'a>>,
+impl<'a> Item<'a> {
+    fn new(thing: &impl fmt::Display, icon: &'a str, chosen_icon: &'a str) -> Item<'a> {
+        Item {
+            icon,
+            chosen_icon,
+            chosen: false,
+            repr: thing.to_string(),
+            preview: None,
+        }
+    }
+
+    fn select(&mut self) {
+        self.chosen = !self.chosen;
+    }
+
+    fn chosen(&self) -> bool {
+        self.chosen
+    }
+
+    fn icon(&self) -> &str {
+        if self.chosen {
+            self.chosen_icon
+        } else {
+            self.icon
+        }
+    }
+
+    fn string(&self) -> &String {
+        &self.repr
+    }
+
+    fn preview<D: fmt::Display>(&mut self, thing: D, func: &DispFunc<D>) {
+        self.preview = Some(func.eval(thing));
+    }
 }
 
-struct Keys {
-    down: Vec<i32>,
-    up: Vec<i32>,
-    select: Vec<i32>,
-    multiselect: Vec<i32>,
+impl<'a> fmt::Display for Item<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{} {}", self.icon(), self.repr))
+    }
 }
 
-struct MenuConfig {
-    multiselect: bool,
+struct Pair {
+    y: i32,
+    x: i32,
 }
 
+impl Pair {
+    fn clone(&self) -> Pair {
+        Pair {
+            y: self.y,
+            x: self.x,
+        }
+    }
+}
+
+impl fmt::Display for Pair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pair({}, {})", self.y, self.x)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum ScreenSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Full,
+}
+
+impl ScreenSide {
+    fn get_bounds(&self, screen_bounds: (Pair, Pair), width: f64) -> (Pair, Pair) {
+        assert!(width <= 1.0 && width > 0.0);
+        match self {
+            Self::Top => (
+                screen_bounds.0,
+                Pair {
+                    y: ((screen_bounds.1.y as f64) * width) as i32,
+                    x: screen_bounds.1.x,
+                },
+            ),
+            Self::Bottom => (
+                // TL: height * (1 - width) + 1
+                // BR: BR
+                Pair {
+                    y: (((screen_bounds.1.y - screen_bounds.0.y) as f64) * (1.0 - width)) as i32
+                        + 1,
+                    x: screen_bounds.0.x,
+                },
+                screen_bounds.1,
+            ),
+            Self::Left => (
+                // TL: TL
+                // BR: screen_width * width
+                screen_bounds.0.clone(),
+                Pair {
+                    y: screen_bounds.1.y,
+                    x: screen_bounds.0.x
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * width) as i32,
+                },
+            ),
+            Self::Right => (
+                // TL: screen_width * (1 - width) + 1
+                // BR: BR
+                Pair {
+                    y: screen_bounds.0.y,
+                    x: screen_bounds.0.x
+                        + (((screen_bounds.1.x - screen_bounds.0.x) as f64) * (1.0 - width)) as i32
+                        + 1,
+                },
+                screen_bounds.1.clone(),
+            ),
+            Self::Full => screen_bounds,
+        }
+    }
+}
+
+impl ops::Not for ScreenSide {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            Self::Top => Self::Bottom,
+            Self::Bottom => Self::Top,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Full => Self::Full,
+        }
+    }
+}
 struct DispFunc<D>
 where
     D: fmt::Display,
@@ -466,229 +685,6 @@ where
         self.update_bounds();
     }
 }
-
-pub struct Menu<'a, I, D>
-where
-    D: fmt::Display,
-    I: Iterator<Item = D>,
-{
-    iter: Peekable<I>,
-    screen: Screen,
-    preview: Option<Preview<D>>,
-    item_icon: &'a str,
-    chosen_item_icon: &'a str,
-    selection: Vec<usize>,
-    keys: Keys,
-
-    state: MenuState<'a>,
-    config: MenuConfig,
-}
-
-use MenuReturnCode::{Done, Pass};
-
-type RetCode = MenuReturnCode;
-
-impl<'a, I, D> Menu<'a, I, D>
-where
-    D: fmt::Display,
-    I: Iterator<Item = D>,
-{
-    pub fn new(iter: I) -> Menu<'a, I, D> {
-        let screen = Screen::new(ScreenSide::Full, 0.5);
-
-        let item_icon: &'static str = ">";
-        let chosen_item_icon: &'static str = "~";
-
-        Menu {
-            iter: iter.peekable(),
-            screen,
-            preview: None,
-            item_icon: &item_icon,
-            chosen_item_icon: &chosen_item_icon,
-            selection: Vec::new(),
-
-            keys: Keys {
-                down: vec![KEY_DOWN, 'j' as i32],
-                up: vec![KEY_UP, 'k' as i32],
-                select: vec![10],
-                multiselect: vec![32],
-            },
-
-            state: MenuState {
-                hover: 0,
-                start: 0,
-                items: Vec::new(),
-            },
-
-            config: MenuConfig { multiselect: true },
-        }
-    }
-
-    pub fn show(&mut self) -> Vec<usize> {
-        init_curses();
-
-        self.screen.show();
-        if let Some(prev) = &mut self.preview {
-            prev.show();
-        }
-        self.refresh();
-
-        loop {
-            match self.screen.get_key() {
-                27 | 113 => break, // ESC or q
-
-                val => {
-                    // This will erase the entire window
-                    self.screen.erase();
-
-                    match self.handle_key(val) {
-                        Pass => {
-                            self.refresh();
-                        }
-                        Done => break,
-                    }
-                }
-            }
-        }
-
-        end_curses();
-        self.finish()
-    }
-
-    fn finish(&self) -> Vec<usize> {
-        self.selection.clone()
-    }
-
-    fn yield_item(&mut self, i: usize) -> Option<&Item> {
-        while self.state.items.len() <= i {
-            if let Some(item) = self.iter.next() {
-                let mut new_item = Item::new(&item, self.item_icon, self.chosen_item_icon);
-                if let Some(preview) = &self.preview {
-                    new_item.preview(item, &preview.func);
-                }
-                self.state.items.push(new_item);
-            } else {
-                return None;
-            }
-        }
-        Some(&self.state.items[i])
-    }
-
-    fn refresh(&mut self) {
-        // Maximum index that will fit on current screen state
-        let end = self.state.start + self.screen.max_y();
-        self.yield_item(end);
-
-        self.screen.reset_pos();
-        if let Some(prev) = &mut self.preview {
-            // prev.screen.reset_pos();
-            prev.draw_box();
-            prev.screen.reset_pos();
-        }
-        // self.preview_screen.reset_pos();
-        let mut i = self.state.start;
-        let pos = self.state.hover + i;
-        loop {
-            if let Some(item) = self.state.items.get(i) {
-                if !self.screen.write_item(&item, pos == i) {
-                    break;
-                }
-                if pos == i {
-                    if let Some(prev) = &mut self.preview {
-                        prev.screen.addstr(item.preview.as_ref().unwrap());
-                    }
-                }
-
-                i += 1;
-            } else {
-                break;
-            }
-        }
-
-        self.screen.refresh();
-
-        if let Some(prev) = &mut self.preview {
-            prev.refresh();
-        }
-    }
-
-    fn handle_key(&mut self, val: i32) -> RetCode {
-        if self.keys.down.contains(&val) {
-            self.move_selection(1)
-        } else if self.keys.up.contains(&val) {
-            self.move_selection(-1)
-        } else if self.config.multiselect && self.keys.multiselect.contains(&val) {
-            self.multiselect_item()
-        } else if self.keys.select.contains(&val) {
-            self.select_item()
-        } else {
-            Pass
-        }
-    }
-
-    fn select_item(&mut self) -> RetCode {
-        let curr_item_idx = self.state.start + self.state.hover;
-        match self.selection.last() {
-            Some(&num) if num == curr_item_idx => return Done,
-            _ => (),
-        }
-        self.state.items[curr_item_idx].select();
-        self.selection.push(curr_item_idx);
-        Done
-    }
-
-    fn multiselect_item(&mut self) -> RetCode {
-        let curr_item_idx = self.state.start + self.state.hover;
-        self.state.items[curr_item_idx].select();
-        self.selection.push(curr_item_idx);
-        Pass
-    }
-
-    fn scroll(&mut self, amount: i32) {
-        self.state.start = ((self.state.start as i32) + amount) as usize;
-        assert!(self.state.start < 1_000_000);
-    }
-
-    fn move_selection(&mut self, amount: i32) -> RetCode {
-        let num_items = self.screen.items_on_screen as f64;
-        let new_hover = ((self.state.hover as i32) + amount) as f64;
-
-        if new_hover < 0.0 || new_hover == num_items {
-            return Pass;
-        }
-
-        self.state.hover = new_hover as usize;
-
-        if new_hover > num_items * 0.67
-            && self.state.start + self.screen.items_on_screen < self.state.items.len()
-        {
-            self.scroll(1);
-            self.state.hover -= 1;
-        } else if new_hover < num_items * 0.33 && self.state.start > 0 && amount < 0 {
-            self.scroll(-1);
-            self.state.hover += 1;
-        }
-
-        Pass
-    }
-
-    // CONFIG
-
-    pub fn preview<F>(mut self, func: F) -> Menu<'a, I, D>
-    where
-        F: Fn(D) -> String + 'static,
-    {
-        let func = DispFunc::new(Box::new(func));
-        self.preview = Some(Preview::new(func, ScreenSide::Right, 0.5));
-        self
-    }
-
-    pub fn preview_side(mut self, side: ScreenSide) -> Menu<'a, I, D> {
-        self.preview.as_mut().unwrap().side = side;
-        self
-    }
-}
-
 // pub fn log(s: &str) -> std::io::Result<()> {
 //     let mut file = OpenOptions::new()
 //         .write(true)
