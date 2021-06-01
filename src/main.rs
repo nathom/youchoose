@@ -11,11 +11,16 @@ fn main() {
     //     .map(String::from);
 
     let list = get_files("./src".to_string());
-    let side = lib::ScreenSide::Bottom;
+    let side = lib::ScreenSide::Left;
     // let mapped = list.iter().map(|s| preview_file(s.to_string().clone()));
     let mut menu = lib::Menu::new(list.iter())
         .preview(preview_file)
-        .preview_side(side);
+        .preview_pos(side, 0.3)
+        .multiselect()
+        .icon(":(")
+        .selected_icon(":)")
+        .preview_label(" ebic ".to_string());
+
     let choice = menu.show();
     println!("Chose {:?}", choice);
 
@@ -42,7 +47,7 @@ fn preview_file(s: &String) -> String {
     if !s.ends_with("rs") {
         return "".to_string();
     }
-    let output = Command::new("bat")
+    let output = Command::new("cat")
         .arg(s.clone())
         .output()
         .expect("Failed to execute command");

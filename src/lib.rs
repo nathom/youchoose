@@ -1,4 +1,6 @@
 use std::fmt;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::iter::Peekable;
 use std::ops;
 
@@ -36,8 +38,8 @@ where
     pub fn new(iter: I) -> Menu<'a, I, D> {
         let screen = Screen::new(ScreenSide::Full, 0.5);
 
-        let item_icon: &'static str = ">";
-        let chosen_item_icon: &'static str = "~";
+        let item_icon: &'a str = "❯";
+        let chosen_item_icon: &'a str = "*";
 
         Menu {
             iter: iter.peekable(),
@@ -60,7 +62,7 @@ where
                 items: Vec::new(),
             },
 
-            config: MenuConfig { multiselect: true },
+            config: MenuConfig { multiselect: false },
         }
     }
 
@@ -224,12 +226,65 @@ where
         F: Fn(D) -> String + 'static,
     {
         let func = DispFunc::new(Box::new(func));
+        self.screen.set_pos(ScreenSide::Left, 0.5);
         self.preview = Some(Preview::new(func, ScreenSide::Right, 0.5));
         self
     }
 
-    pub fn preview_side(mut self, side: ScreenSide) -> Menu<'a, I, D> {
-        self.preview.as_mut().unwrap().side = side;
+    pub fn preview_pos(
+        mut self,
+        side: ScreenSide,
+        width: f64,
+    ) -> Menu<'a, I, D> {
+        self.screen.set_pos(!side, 1.0 - width);
+        self.preview
+            .as_mut()
+            .expect("Must create preview before settting it's position")
+            .set_pos(side, width);
+
+        self
+    }
+
+    pub fn icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
+        self.item_icon = icon;
+        self
+    }
+
+    pub fn selected_icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
+        self.chosen_item_icon = icon;
+        self
+    }
+
+    pub fn preview_label(mut self, label: String) -> Menu<'a, I, D> {
+        self.preview
+            .as_mut()
+            .expect("Must create preview before settting it's position")
+            .set_label(label);
+        self
+    }
+
+    pub fn add_multiselect_key(mut self, key: i32) -> Menu<'a, I, D> {
+        self.keys.multiselect.push(key);
+        self
+    }
+
+    pub fn add_up_key(mut self, key: i32) -> Menu<'a, I, D> {
+        self.keys.up.push(key);
+        self
+    }
+
+    pub fn add_down_key(mut self, key: i32) -> Menu<'a, I, D> {
+        self.keys.down.push(key);
+        self
+    }
+
+    pub fn add_select_key(mut self, key: i32) -> Menu<'a, I, D> {
+        self.keys.select.push(key);
+        self
+    }
+
+    pub fn multiselect(mut self) -> Menu<'a, I, D> {
+        self.config.multiselect = true;
         self
     }
 }
@@ -314,7 +369,12 @@ impl Screen {
         true
     }
 
-    fn draw_box(&mut self, side: ScreenSide, width: f64) {
+    fn draw_box(
+        &mut self,
+        side: ScreenSide,
+        width: f64,
+        label: &Option<String>,
+    ) {
         let bounds = side
             .get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
 
@@ -328,15 +388,21 @@ impl Screen {
         let corner_tr = "┐";
         let corner_br = "┘";
 
-        let preview_box_text = " preview ";
-
         // top line
         self.pos.x = bounds.0.x;
         self.pos.y = bounds.0.y;
         self.addstr(corner_tl);
-        // self.addstr(hor_line);
-        self.addstr(preview_box_text);
-        self.addstr(&hor_line.repeat(box_width - preview_box_text.len() - 2));
+        let label_len = match label {
+            Some(label) => {
+                self.addstr(&label);
+                label.len()
+            }
+            None => {
+                self.addstr(" preview ");
+                9
+            }
+        };
+        self.addstr(&hor_line.repeat(box_width - label_len - 2));
         self.addstr(corner_tr);
 
         // vertical lines
@@ -402,53 +468,48 @@ impl Screen {
             let next_char = chars.next();
             if let Some(c) = next_char {
                 // TODO: shorten the code here
+                let mut both = false;
                 if char_counter >= screen_width {
                     self.addstr_clean(&curr_string);
                     curr_string.clear();
                     self.pos.y += 1;
                     self.pos.x = self.bounds.0.x;
                     char_counter = 0;
-                } else if c == '\n' {
+
+                    both = true;
+                }
+                if c == '\n' {
                     self.addstr_clean(&curr_string);
                     curr_string.clear();
                     self.pos.y += 1;
                     self.pos.x = self.bounds.0.x;
                     char_counter = 0;
+                    both &= true;
+                    if both {
+                        self.pos.y -= 1;
+                    }
+
                     continue;
                 }
                 if self.pos.y >= self.bounds.1.y {
                     curr_string.clear();
                     break;
                 }
+                assert!(c != '\n');
                 curr_string.push(c);
                 char_counter += 1;
             } else {
                 break;
             }
         }
+        assert!(!curr_string.contains('\n'));
         self.addstr_clean(&curr_string);
     }
-
-    // fn addstr_with_newlines(&mut self, s: &str) {
-    //     for substr in s.split('\n') {
-    //         mvaddstr(self.pos.y, self.pos.x, substr);
-    //         self.pos.y += 1;
-    //         self.pos.x = self.bounds.0.x;
-    //     }
-    // }
 
     fn addstr_clean(&mut self, s: &str) {
         mvaddstr(self.pos.y, self.pos.x, s);
         self.pos.x += s.char_indices().collect::<Vec<_>>().len() as i32;
     }
-
-    // fn get_n(&self, chars: &mut Chars, n: usize) -> String {
-    //     let mut s = String::new();
-    //     for _ in 0..n {
-    //         s.push_str(&chars.next().unwrap().to_string());
-    //     }
-    //     s
-    // }
 
     fn addch(&mut self, c: char) {
         mvaddch(self.pos.y, self.pos.x, c as u32);
@@ -460,13 +521,12 @@ impl Screen {
         self.pos.x = self.bounds.0.x;
     }
 
-    // fn set_side(&mut self, new_side: ScreenSide) {
-    //     self.side = new_side;
-    // }
+    fn set_pos(&mut self, new_side: ScreenSide, width: f64) {
+        assert!(width > 0.0 && width <= 1.0);
 
-    // fn set_width(&mut self, new_size: f64) {
-    //     self.width = new_size;
-    // }
+        self.side = new_side;
+        self.width = width;
+    }
 }
 
 struct Item<'a> {
@@ -618,6 +678,7 @@ impl ops::Not for ScreenSide {
         }
     }
 }
+
 struct DispFunc<D>
 where
     D: fmt::Display,
@@ -644,7 +705,7 @@ where
     func: DispFunc<D>,
     box_screen: Screen,
     screen: Screen,
-    side: ScreenSide,
+    label: Option<String>,
 }
 
 impl<D> Preview<D>
@@ -657,14 +718,14 @@ where
 
         Preview {
             func,
-            side,
             box_screen,
             screen,
+            label: None,
         }
     }
 
     fn draw_box(&mut self) {
-        self.box_screen.draw_box(ScreenSide::Full, 1.0);
+        self.box_screen.draw_box(ScreenSide::Full, 1.0, &self.label);
     }
 
     fn show(&mut self) {
@@ -680,19 +741,24 @@ where
         self.screen.bounds.1.x -= 1;
     }
 
-    // fn change_pos(&mut self, side: ScreenSide, width: f64) {
-    //     self.side = side;
-    //     self.box_screen = Screen::new(side, width);
-    //     self.screen = Screen::new(side, width);
-    // }
-
     fn refresh(&mut self) {
         self.screen.refresh();
         self.box_screen.refresh();
         self.update_bounds();
     }
+
+    fn set_pos(&mut self, side: ScreenSide, width: f64) {
+        self.screen.set_pos(side, width);
+        self.box_screen.set_pos(side, width);
+        self.update_bounds();
+    }
+
+    fn set_label(&mut self, label: String) {
+        self.label = Some(label);
+    }
 }
-// pub fn log(s: &str) -> std::io::Result<()> {
+
+// fn log(s: &str) -> std::io::Result<()> {
 //     let mut file = OpenOptions::new()
 //         .write(true)
 //         .append(true)
