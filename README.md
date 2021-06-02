@@ -21,6 +21,8 @@ fn main() {
 }
 ```
 
+![basic config](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/basic.png)
+
 Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `ESC` or `q` can be used to quit.
 
 **Previews**
@@ -47,6 +49,8 @@ fn multiples(num: i32) -> String {
     buffer
 }
 ```
+
+![preview](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/with_preview.png)
 
 **Customization**
 
@@ -76,4 +80,6 @@ fn multiples(num: i32) -> String {
 }
 
 ```
+
+![fully customized](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/customized.png)
 
