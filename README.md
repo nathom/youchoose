@@ -42,7 +42,7 @@ fn multiples(num: i32) -> String {
     let mut buffer = String::new();
     for i in 0..20 {
         buffer.push_str(
-            format!("{} times {} is equal to {}!\n", num, i, num * i)
+            &format!("{} times {} is equal to {}!\n", num, i, num * i)
         );
     }
     buffer
@@ -59,8 +59,8 @@ use youchoose;
 fn main() {
     let mut menu = youchoose::Menu::new(0..100)
         .preview(multiples)              // Sets the preview function
-        .preview_pos(youchoose::Bottom)  // Sets the position of the preview pane
-        .preview_label(" multiples ")    // Sets the text at the top of the preview pane
+        .preview_pos(youchoose::ScreenSide::Bottom)  // Sets the position of the preview pane
+        .preview_label(" multiples ".to_string())    // Sets the text at the top of the preview pane
         .multiselect()                   // Allows multiple items to be selected
         .icon(":(")                      // Sets the default (not selected) icon for an item
         .selected_icon(":)")             // The icon for selected items
