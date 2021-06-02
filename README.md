@@ -31,8 +31,7 @@ The `youchoose::Menu` has a preview feature, which executes a command and shows 
 use youchoose;
 
 fn main(){
-    let mut menu = youchoose::Menu::new(0..100)
-    .preview(multiples);
+    let mut menu = youchoose::Menu::new(0..100).preview(multiples);
     let choice = menu.show();
     println!("Chose {:?}", choice);
     
