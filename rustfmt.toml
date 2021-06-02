@@ -1,2 +1,2 @@
-edition = "2021"
+edition = "2018"
 max_width = 79

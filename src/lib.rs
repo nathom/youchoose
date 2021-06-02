@@ -1,18 +1,18 @@
 //! # youchoose
-//! 
+//!
 //! A simple, easy to use command line menu for Rust.
-//! 
-//! 
-//! 
+//!
+//!
+//!
 //! ## Usage
-//! 
+//!
 //! There are two methods you need to be familiar with to get started: `Menu::new` which takes an `Iterator` as an argument, and `Menu::show` which initializes `ncurses` and displays the menu.
-//! 
+//!
 //! Here is a minimal example that displays the range  `0..100` in a menu:
-//! 
+//!
 //! ```rust
 //! use youchoose;
-//! 
+//!
 //! fn main() {
 //!     let mut menu = youchoose::Menu::new(0..100);
 //!     let choice = menu.show();
@@ -20,16 +20,16 @@
 //!     println!("Index of the chosen item: {:?}", choice);
 //! }
 //! ```
-//! 
+//!
 //! Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `ESC` or `q` can be used to quit.
-//! 
+//!
 //! **Previews**
-//! 
-//! The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a seperate pane. 
-//! 
+//!
+//! The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a seperate pane.
+//!
 //! ```rust
 //! use youchoose;
-//! 
+//!
 //! fn main(){
 //!     let mut menu = youchoose::Menu::new(0..100)
 //!     .preview(multiples);
@@ -37,7 +37,7 @@
 //!     println!("Chose {:?}", choice);
 //!     
 //! }
-//! 
+//!
 //! fn multiples(num: i32) -> String {
 //!     let mut buffer = String::new();
 //!     for i in 0..20 {
@@ -48,14 +48,14 @@
 //!     buffer
 //! }
 //! ```
-//! 
+//!
 //! **Customization**
-//! 
+//!
 //! Let's take a look at an example that showcases the available methods for customization.
-//! 
+//!
 //! ```rust
 //! use youchoose;
-//! 
+//!
 //! fn main() {
 //!     let mut menu = youchoose::Menu::new(0..100)
 //!         .preview(multiples)              // Sets the preview function
@@ -68,18 +68,15 @@
 //!         .add_up_key('u' as i32)          // Bind the 'u' key to up
 //!         .add_down_key('d' as i32)        // Bind the 'd' key to down
 //!         .add_select_key('.' as i32);     // Bind the '.' key to select
-//! 
+//!
 //!     let choice = menu.show();
 //! }
-//! 
+//!
 //! fn multiples(num: i32) -> String {
 //!     // --- Snip ---
 //! }
-//! 
+//!
 //! ```
-
-
-
 
 use std::fmt;
 // use std::fs::OpenOptions;
