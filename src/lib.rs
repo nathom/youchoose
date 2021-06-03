@@ -21,6 +21,8 @@
 //! }
 //! ```
 //!
+//! ![basic config](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/basic.png)
+//!
 //! Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `ESC` or `q` can be used to quit.
 //!
 //! **Previews**
@@ -49,6 +51,8 @@
 //! }
 //! ```
 //!
+//! ![preview](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/with_preview.png)
+//!
 //! **Customization**
 //!
 //! Let's take a look at an example that showcases the available methods for customization.
@@ -75,8 +79,9 @@
 //! fn multiples(num: i32) -> String {
 //!     // --- Snip ---
 //! }
-//!
 //! ```
+//!
+//! ![fully customized](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/customized.png)
 
 use std::fmt;
 // use std::fs::OpenOptions;
