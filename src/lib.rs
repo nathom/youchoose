@@ -6,7 +6,9 @@
 //!
 //! ## Usage
 //!
-//! There are two methods you need to be familiar with to get started: `Menu::new` which takes an `Iterator` as an argument, and `Menu::show` which initializes `ncurses` and displays the menu.
+//! There are two methods you need to be familiar with to get started:
+//! `Menu::new` which takes an `Iterator` as an argument, and `Menu::show`
+//! which initializes `ncurses` and displays the menu.
 //!
 //! Here is a minimal example that displays the range  `0..100` in a menu:
 //!
@@ -23,11 +25,13 @@
 //!
 //! ![basic config](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/basic.png)
 //!
-//! Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `ESC` or `q` can be used to quit.
+//! Either `↓↑` or `jk` can be used to scroll, and `return` is used to select.
+//! `ESC` or `q` can be used to quit.
 //!
 //! **Previews**
 //!
-//! The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a seperate pane.
+//! The `youchoose::Menu` has a preview feature, which executes a command and
+//! shows the results on a seperate pane.
 //!
 //! ```rust
 //! use youchoose;
@@ -91,7 +95,7 @@ use std::ops;
 
 use ncurses::*;
 
-/// A Menu that lazily displays an iterable and (optionally) it's preview.
+/// A Menu that lazily displays an iterable and (optionally) its preview.
 pub struct Menu<'a, I, D>
 where
     D: fmt::Display,
@@ -378,7 +382,7 @@ where
     }
 
     /// Adds a keybinding that triggers a multiselection. This inputs an `ncurses` keycode.
-    /// All ascii keys can be set by passing the character as an `i32`. The keycodes for 
+    /// All ascii keys can be set by passing the character as an `i32`. The keycodes for
     /// special keys can be found by importing `ncurses` and using the provided constants
     /// or by testing with the `getch` function. For example, running the following will display
     /// the keycodes on the screen.
