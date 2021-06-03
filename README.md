@@ -1,6 +1,6 @@
 # youchoose
 
-[![crates.io](https://img.shields.io/crates/v/youchoose)](https://crates.io/crates/youchoose) [![docs.rs](https://img.shields.io/docsrs/youchoose)](https://docs.rs/crate/youchoose/)
+[![crates.io](https://img.shields.io/crates/v/youchoose)](https://crates.io/crates/youchoose) [![docs.rs](https://img.shields.io/docsrs/youchoose)](https://docs.rs/youchoose)
 
 A simple, easy to use command line menu for Rust.
 
