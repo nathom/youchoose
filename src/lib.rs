@@ -940,25 +940,3 @@ fn init_curses() {
 fn end_curses() {
     endwin();
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn def_item_formatting() {
-        let icon = String::from("xx");
-        let chosen = String::from("--");
-        let mut item = Item::new("test string", &icon, &chosen);
-        assert_eq!(item.to_string(), "xx test string");
-    }
-
-    #[test]
-    fn chosen_item_fomatting() {
-        let icon = String::from("xx");
-        let chosen = String::from("--");
-        let mut item = Item::new("test string", &icon, &chosen);
-        item.select();
-        assert_eq!(item.to_string(), "-- test string");
-    }
-}
