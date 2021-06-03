@@ -67,7 +67,7 @@
 //! fn main() {
 //!     let mut menu = youchoose::Menu::new(0..100)
 //!         .preview(multiples)              // Sets the preview function
-//!         .preview_pos(youchoose::ScreenSide::Bottom)  // Sets the position of the preview pane
+//!         .preview_pos(youchoose::ScreenSide::Bottom, 0.3)  // Sets the position of the preview pane
 //!         .preview_label(" multiples ".to_string())    // Sets the text at the top of the preview pane
 //!         .multiselect()                   // Allows multiple items to be selected
 //!         .icon(":(")                      // Sets the default (not selected) icon for an item
