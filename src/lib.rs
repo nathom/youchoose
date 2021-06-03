@@ -86,6 +86,7 @@ use std::ops;
 
 use ncurses::*;
 
+/// A Menu that lazily displays an iterable and (optionally) it's preview.
 pub struct Menu<'a, I, D>
 where
     D: fmt::Display,
@@ -115,6 +116,8 @@ where
     D: fmt::Display,
     I: Iterator<Item = D>,
 {
+    /// Create a new menu object. The iterable passed in must contain displayable
+    /// items.
     pub fn new(iter: I) -> Menu<'a, I, D> {
         let screen = Screen::new(ScreenSide::Full, 0.5);
 
@@ -146,6 +149,7 @@ where
         }
     }
 
+    /// Initialize curses and display the menu on the screen.
     pub fn show(&mut self) -> Vec<usize> {
         init_curses();
 
@@ -299,8 +303,9 @@ where
         Pass
     }
 
-    // CONFIG
-
+    /// Add a preview pane that displays the result of applying the function
+    /// passed in to each item in the iterable. The function must return a
+    /// String.
     pub fn preview<F>(mut self, func: F) -> Menu<'a, I, D>
     where
         F: Fn(D) -> String + 'static,
@@ -311,6 +316,13 @@ where
         self
     }
 
+    /// Sets the position of the preview pane. The `side` parameter determines
+    /// the side on which the pane sits. The `width` parameter is a float between
+    /// `0.0` and `1.0`, inclusive. It determines the proportion of the screen that
+    /// the preview pane should use.
+    ///
+    /// The menu's side is automatically switched to opposite the preview pane's side,
+    /// and the menu's width is set to `1 - width`.
     pub fn preview_pos(
         mut self,
         side: ScreenSide,
@@ -325,16 +337,20 @@ where
         self
     }
 
+    /// Sets the default icon of the menu. This is displayed before each entry.
     pub fn icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
         self.item_icon = icon;
         self
     }
 
+    /// Sets the icon displayed when an item is selected in multiselect mode.
     pub fn selected_icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
         self.chosen_item_icon = icon;
         self
     }
 
+    /// Sets the text displayed on top of the preview box. It is recommended to surround the label
+    /// with spaces for aesthetic reasons. If it is not set, `" preview "` will be used.
     pub fn preview_label(mut self, label: String) -> Menu<'a, I, D> {
         self.preview
             .as_mut()
@@ -343,26 +359,50 @@ where
         self
     }
 
+    /// Adds a keybinding that triggers a multiselection. This inputs an `ncurses` keycode.
+    /// All ascii keys can be set by passing the character as an `i32`. The keycodes for 
+    /// special keys can be found by importing `ncurses` and using the provided constants
+    /// or by testing with the `getch` function. For example, running the following will display
+    /// the keycodes on the screen.
+    ///
+    /// ```
+    /// // Make sure to add ncurses as a dependency!
+    /// use ncurses::*;
+    /// fn main() {
+    ///     initscr();
+    ///     loop {
+    ///         let c: i32 = getch();
+    ///         clear();
+    ///         if c == 'q' as i32 {break}
+    ///         addstr(&format!("Pressed key with keycode {}!", c.to_string()));
+    ///     }
+    ///     endwin();
+    /// }
+    /// ```
     pub fn add_multiselect_key(mut self, key: i32) -> Menu<'a, I, D> {
         self.keys.multiselect.push(key);
         self
     }
 
+    /// Adds a keybinding that triggers an up movement. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
     pub fn add_up_key(mut self, key: i32) -> Menu<'a, I, D> {
         self.keys.up.push(key);
         self
     }
 
+    /// Adds a keybinding that triggers a down movement. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
     pub fn add_down_key(mut self, key: i32) -> Menu<'a, I, D> {
         self.keys.down.push(key);
         self
     }
 
+    /// Adds a keybinding that triggers a selection. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
     pub fn add_select_key(mut self, key: i32) -> Menu<'a, I, D> {
         self.keys.select.push(key);
         self
     }
 
+    /// Allow multiple items to be selected from the menu.
     pub fn multiselect(mut self) -> Menu<'a, I, D> {
         self.config.multiselect = true;
         self
@@ -683,12 +723,14 @@ impl fmt::Display for Pair {
     }
 }
 
+/// Determines the side on which a pane should be located.
 #[derive(Copy, Clone)]
 pub enum ScreenSide {
     Left,
     Right,
     Top,
     Bottom,
+    /// This option is not affected by width. It will always fill the screen.
     Full,
 }
 
@@ -848,7 +890,7 @@ where
 //     Ok(())
 // }
 
-pub fn init_curses() {
+fn init_curses() {
     // Allow unicode characters
     let locale_conf = LcCategory::all;
     setlocale(locale_conf, "en_US.UTF-8");
@@ -873,7 +915,7 @@ pub fn init_curses() {
     keypad(stdscr(), true);
 }
 
-pub fn end_curses() {
+fn end_curses() {
     endwin();
 }
 
