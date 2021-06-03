@@ -1,8 +1,8 @@
 # youchoose
 
-A simple, easy to use command line menu for Rust.
-
 ![crates.io](https://img.shields.io/crates/v/youchoose)
+
+A simple, easy to use command line menu for Rust.
 
 ## Usage
 
