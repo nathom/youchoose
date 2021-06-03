@@ -271,8 +271,21 @@ where
 
     fn multiselect_item(&mut self) -> RetCode {
         let curr_item_idx = self.state.start + self.state.hover;
-        self.state.items[curr_item_idx].select();
-        self.selection.push(curr_item_idx);
+        let curr_item = &mut self.state.items[curr_item_idx];
+        curr_item.select();
+
+        let item_idx_pos =
+            match self.selection.iter().position(|x| *x == curr_item_idx) {
+                Some(idx) => idx as i32,
+                None => -1,
+            };
+
+        if curr_item.chosen() && item_idx_pos == -1 {
+            self.selection.push(curr_item_idx);
+        } else if !curr_item.chosen() && item_idx_pos != -1 {
+            self.selection.remove(item_idx_pos as usize);
+        }
+
         Pass
     }
 
