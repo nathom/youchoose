@@ -8,7 +8,7 @@ A simple, easy to use command line menu for Rust.
 
 There are two methods you need to be familiar with to get started: `Menu::new` which takes an `Iterator` as an argument, and `Menu::show` which initializes `ncurses` and displays the menu.
 
-Here is a minimal example that displays the range  `0..100` in a menu:
+Here is a minimal example that displays the range `0..100` in a menu:
 
 ```rust
 use youchoose;
@@ -27,7 +27,9 @@ Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `
 
 **Previews**
 
+
 The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a separate pane. 
+
 
 ```rust
 use youchoose;
@@ -36,7 +38,7 @@ fn main(){
     let mut menu = youchoose::Menu::new(0..100).preview(multiples);
     let choice = menu.show();
     println!("Chose {:?}", choice);
-    
+
 }
 
 fn multiples(num: i32) -> String {
@@ -62,7 +64,7 @@ use youchoose;
 fn main() {
     let mut menu = youchoose::Menu::new(0..100)
         .preview(multiples)              // Sets the preview function
-        .preview_pos(youchoose::ScreenSide::Bottom)  // Sets the position of the preview pane
+        .preview_pos(youchoose::ScreenSide::Bottom, 0.3)  // Sets the position of the preview pane and its width across 0.0 and 1.0
         .preview_label(" multiples ".to_string())    // Sets the text at the top of the preview pane
         .multiselect()                   // Allows multiple items to be selected
         .icon(":(")                      // Sets the default (not selected) icon for an item
@@ -77,9 +79,9 @@ fn main() {
 
 fn multiples(num: i32) -> String {
     // --- Snip ---
+    format!("very custom: {}", num)
 }
 
 ```
 
 ![fully customized](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/customized.png)
-
