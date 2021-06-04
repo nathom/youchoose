@@ -27,7 +27,9 @@ Either `↓↑` or `jk` can be used to scroll, and `return` is used to select. `
 
 **Previews**
 
-The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a seperate pane.
+
+The `youchoose::Menu` has a preview feature, which executes a command and shows the results on a separate pane. 
+
 
 ```rust
 use youchoose;
