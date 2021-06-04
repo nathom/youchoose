@@ -291,14 +291,16 @@ where
     }
 
     fn move_selection(&mut self, amount: i32) -> RetCode {
-        let num_items = self.screen.items_on_screen as f64;
-        let new_hover = ((self.state.hover as i32) + amount) as f64;
+        let num_items = self.screen.items_on_screen as i32;
+        let new_hover = (self.state.hover as i32) + amount;
 
-        if new_hover < 0.0 || (new_hover - num_items).abs() < f64::EPSILON {
+        if new_hover < 0 || num_items == new_hover {
             return Pass;
         }
 
         self.state.hover = new_hover as usize;
+        let new_hover = new_hover as f64;
+        let num_items = num_items as f64;
 
         if new_hover > num_items * 0.67
             && self.state.start + self.screen.items_on_screen
