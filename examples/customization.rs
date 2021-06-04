@@ -17,6 +17,14 @@ fn main() {
 }
 
 fn multiples(num: i32) -> String {
-    // --- Snip ---
-    format!("very custom: {}", num)
+    let mut buffer = String::new();
+    for i in 0..20 {
+        buffer.push_str(&format!(
+            "{} times {} is equal to {}!\n",
+            num,
+            i,
+            num * i
+        ));
+    }
+    buffer
 }
