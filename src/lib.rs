@@ -13,14 +13,10 @@
 //! Here is a minimal example that displays the range  `0..100` in a menu:
 //!
 //! ```rust
-//! use youchoose;
-//!
-//! fn main() {
-//!     let mut menu = youchoose::Menu::new(0..100);
-//!     let choice = menu.show();
-//!     // `choice` is a Vec<usize> containing the chosen indices
-//!     println!("Index of the chosen item: {:?}", choice);
-//! }
+//! let mut menu = youchoose::Menu::new(0..100);
+//! let choice = menu.show();
+//! // `choice` is a Vec<usize> containing the chosen indices
+//! println!("Index of the chosen item: {:?}", choice);
 //! ```
 //!
 //! ![basic config](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/basic.png)
@@ -222,21 +218,17 @@ where
         }
         let mut i = self.state.start;
         let pos = self.state.hover + i;
-        loop {
-            if let Some(item) = self.state.items.get(i) {
-                if !self.screen.write_item(&item, pos == i) {
-                    break;
-                }
-                if pos == i {
-                    if let Some(prev) = &mut self.preview {
-                        prev.screen.addstr(item.preview.as_ref().unwrap());
-                    }
-                }
-
-                i += 1;
-            } else {
+        while let Some(item) = self.state.items.get(i) {
+            if !self.screen.write_item(&item, pos == i) {
                 break;
             }
+            if pos == i {
+                if let Some(prev) = &mut self.preview {
+                    prev.screen.addstr(item.preview.as_ref().unwrap());
+                }
+            }
+
+            i += 1;
         }
 
         self.screen.refresh();
@@ -302,7 +294,7 @@ where
         let num_items = self.screen.items_on_screen as f64;
         let new_hover = ((self.state.hover as i32) + amount) as f64;
 
-        if new_hover < 0.0 || new_hover == num_items {
+        if new_hover < 0.0 || (new_hover - num_items).abs() < f64::EPSILON {
             return Pass;
         }
 
@@ -388,18 +380,16 @@ where
     /// the keycodes on the screen.
     ///
     /// ```
-    /// // Make sure to add ncurses as a dependency!
-    /// use ncurses::*;
-    /// fn main() {
-    ///     initscr();
-    ///     loop {
-    ///         let c: i32 = getch();
-    ///         clear();
-    ///         if c == 'q' as i32 {break}
-    ///         addstr(&format!("Pressed key with keycode {}!", c.to_string()));
-    ///     }
-    ///     endwin();
+    /// // use ncurses::*;
+    ///
+    /// initscr();
+    /// loop {
+    ///     let c: i32 = getch();
+    ///     clear();
+    ///     if c == 'q' as i32 {break}
+    ///     addstr(&format!("Pressed key with keycode {}!", c.to_string()));
     /// }
+    /// endwin();
     /// ```
     pub fn add_multiselect_key(mut self, key: i32) -> Menu<'a, I, D> {
         self.keys.multiselect.push(key);
@@ -650,7 +640,7 @@ impl Screen {
 
     fn addstr_clean(&mut self, s: &str) {
         mvaddstr(self.pos.y, self.pos.x, s);
-        self.pos.x += s.char_indices().collect::<Vec<_>>().len() as i32;
+        self.pos.x += s.char_indices().count() as i32;
     }
 
     fn addch(&mut self, c: char) {

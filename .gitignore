@@ -5,3 +5,4 @@ Cargo.lock
 choose.log
 /src/main.rs
 /doc
+/src/\#lib.rs\#
