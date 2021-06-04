@@ -222,21 +222,18 @@ where
         }
         let mut i = self.state.start;
         let pos = self.state.hover + i;
-        loop {
-            if let Some(item) = self.state.items.get(i) {
-                if !self.screen.write_item(&item, pos == i) {
-                    break;
-                }
-                if pos == i {
-                    if let Some(prev) = &mut self.preview {
-                        prev.screen.addstr(item.preview.as_ref().unwrap());
-                    }
-                }
 
-                i += 1;
-            } else {
+        while let Some(item) = self.state.items.get(i) {
+            if !self.screen.write_item(&item, pos == i) {
                 break;
             }
+            if pos == i {
+                if let Some(prev) = &mut self.preview {
+                    prev.screen.addstr(item.preview.as_ref().unwrap());
+                }
+            }
+
+            i += 1;
         }
 
         self.screen.refresh();
@@ -302,7 +299,7 @@ where
         let num_items = self.screen.items_on_screen as f64;
         let new_hover = ((self.state.hover as i32) + amount) as f64;
 
-        if new_hover < 0.0 || new_hover == num_items {
+        if new_hover < 0.0 || (new_hover - num_items).abs() < f64::EPSILON {
             return Pass;
         }
 
@@ -650,7 +647,7 @@ impl Screen {
 
     fn addstr_clean(&mut self, s: &str) {
         mvaddstr(self.pos.y, self.pos.x, s);
-        self.pos.x += s.char_indices().collect::<Vec<_>>().len() as i32;
+        self.pos.x += s.char_indices().count() as i32;
     }
 
     fn addch(&mut self, c: char) {
