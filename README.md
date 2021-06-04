@@ -85,3 +85,9 @@ fn multiples(num: i32) -> String {
 ```
 
 ![fully customized](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/customized.png)
+
+## Contributions
+
+All contributions, big or small, are welcome! If you would like to implement a new feature or fix a bug,
+open a pull request to the `dev` branch. Please document any public functions or nontrivial code that 
+you add.
