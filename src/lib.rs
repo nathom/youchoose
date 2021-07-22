@@ -84,8 +84,8 @@
 //! ![fully customized](https://raw.githubusercontent.com/nathom/youchoose/main/screenshots/customized.png)
 
 use std::fmt;
-// use std::fs::OpenOptions;
-// use std::io::Write;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::iter::Peekable;
 use std::ops;
 
@@ -97,6 +97,7 @@ where
     D: fmt::Display,
     I: Iterator<Item = D>,
 {
+    title: Option<&'a str>,
     iter: Peekable<I>,
     screen: Screen,
     preview: Option<Preview<D>>,
@@ -123,13 +124,14 @@ where
 {
     /// Create a new menu object. The iterable passed in must contain displayable
     /// items.
-    pub fn new(iter: I) -> Menu<'a, I, D> {
+    pub fn new(iter: I) -> Self {
         let screen = Screen::new(ScreenSide::Full, 0.5);
 
         let item_icon: &'a str = "❯";
         let chosen_item_icon: &'a str = "*";
 
-        Menu {
+        Self {
+            title: None,
             iter: iter.peekable(),
             screen,
             preview: None,
@@ -162,8 +164,13 @@ where
         if let Some(prev) = &mut self.preview {
             prev.show();
         }
+        log("initial screen bounds: ");
+        log(&self.screen.bounds);
+
         self.refresh();
 
+        log("after refresh: ");
+        log(&self.screen.bounds);
         loop {
             match self.screen.get_key() {
                 27 | 113 => break, // ESC or q
@@ -175,6 +182,8 @@ where
                     match self.handle_key(val) {
                         Pass => {
                             self.refresh();
+                            log("after refresh: ");
+                            log(&self.screen.bounds);
                         }
                         Done => break,
                     }
@@ -207,11 +216,52 @@ where
     }
 
     fn refresh(&mut self) {
+        // We redraw the entire thing so that resizing the terminal will
+        // properly update the menu
+
+        if let Some(title) = self.title {
+            log("has title");
+            addstr(title); // Outside of both screens
+
+            let title_height = (title.len() / self.screen.max_x() + 1) as i32;
+
+            let top_offset = Pair {
+                y: title_height,
+                x: 0,
+            };
+            let bottom_offset = Pair { y: 0, x: 0 };
+
+            if self.screen.bounds_offset.is_none() {
+                log("settings screen offset");
+
+                self.screen.bounds_offset =
+                    Some((top_offset.clone(), bottom_offset.clone()));
+            }
+
+            if let Some(prev) = &mut self.preview {
+                if prev.box_screen.bounds_offset.is_none() {
+                    log("setting preview offset");
+                    prev.box_screen.bounds_offset =
+                        Some((top_offset, bottom_offset));
+
+                    if let Some(offset) = prev.screen.bounds_offset.as_mut() {
+                        if offset.0.y == 1 {
+                            log("changing screen offset");
+                            offset.0.y += title_height;
+                        }
+                    }
+                }
+                prev.screen.reset_pos();
+                prev.box_screen.reset_pos();
+            }
+        }
+        self.screen.reset_pos();
+
         // Maximum index that will fit on current screen state
+        // because each entry will use a minimum of one line
         let end = self.state.start + self.screen.max_y();
         self.yield_item(end);
 
-        self.screen.reset_pos();
         if let Some(prev) = &mut self.preview {
             prev.draw_box();
             prev.screen.reset_pos();
@@ -319,10 +369,15 @@ where
         Pass
     }
 
+    pub fn title(mut self, text: &'a str) -> Self {
+        self.title = Some(text);
+        self
+    }
+
     /// Add a preview pane that displays the result of applying the function
     /// passed in to each item in the iterable. The function must return a
     /// String.
-    pub fn preview<F>(mut self, func: F) -> Menu<'a, I, D>
+    pub fn preview<F>(mut self, func: F) -> Self
     where
         F: Fn(D) -> String + 'static,
     {
@@ -339,11 +394,7 @@ where
     ///
     /// The menu's side is automatically switched to opposite the preview pane's side,
     /// and the menu's width is set to `1 - width`.
-    pub fn preview_pos(
-        mut self,
-        side: ScreenSide,
-        width: f64,
-    ) -> Menu<'a, I, D> {
+    pub fn preview_pos(mut self, side: ScreenSide, width: f64) -> Self {
         self.screen.set_pos(!side, 1.0 - width);
         self.preview
             .as_mut()
@@ -354,20 +405,20 @@ where
     }
 
     /// Sets the default icon of the menu. This is displayed before each entry.
-    pub fn icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
+    pub fn icon(mut self, icon: &'a str) -> Self {
         self.item_icon = icon;
         self
     }
 
     /// Sets the icon displayed when an item is selected in multiselect mode.
-    pub fn selected_icon(mut self, icon: &'a str) -> Menu<'a, I, D> {
+    pub fn selected_icon(mut self, icon: &'a str) -> Self {
         self.chosen_item_icon = icon;
         self
     }
 
     /// Sets the text displayed on top of the preview box. It is recommended to surround the label
     /// with spaces for aesthetic reasons. If it is not set, `" preview "` will be used.
-    pub fn preview_label(mut self, label: String) -> Menu<'a, I, D> {
+    pub fn preview_label(mut self, label: String) -> Self {
         self.preview
             .as_mut()
             .expect("Must create preview before settting it's position")
@@ -393,42 +444,44 @@ where
     /// }
     /// endwin();
     /// ```
-    pub fn add_multiselect_key(mut self, key: i32) -> Menu<'a, I, D> {
+    pub fn add_multiselect_key(mut self, key: i32) -> Self {
         self.keys.multiselect.push(key);
         self
     }
 
     /// Adds a keybinding that triggers an up movement. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
-    pub fn add_up_key(mut self, key: i32) -> Menu<'a, I, D> {
+    pub fn add_up_key(mut self, key: i32) -> Self {
         self.keys.up.push(key);
         self
     }
 
     /// Adds a keybinding that triggers a down movement. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
-    pub fn add_down_key(mut self, key: i32) -> Menu<'a, I, D> {
+    pub fn add_down_key(mut self, key: i32) -> Self {
         self.keys.down.push(key);
         self
     }
 
     /// Adds a keybinding that triggers a selection. See [`add_multiselect_key`](struct.Menu.html#method.add_multiselect_key) for more information.
-    pub fn add_select_key(mut self, key: i32) -> Menu<'a, I, D> {
+    pub fn add_select_key(mut self, key: i32) -> Self {
         self.keys.select.push(key);
         self
     }
 
     /// Allow multiple items to be selected from the menu.
-    pub fn multiselect(mut self) -> Menu<'a, I, D> {
+    pub fn multiselect(mut self) -> Self {
         self.config.multiselect = true;
         self
     }
 }
 
+#[derive(Debug)]
 struct MenuState<'a> {
     hover: usize,
     start: usize,
     items: Vec<Item<'a>>,
 }
 
+#[derive(Debug)]
 struct Keys {
     down: Vec<i32>,
     up: Vec<i32>,
@@ -436,12 +489,15 @@ struct Keys {
     multiselect: Vec<i32>,
 }
 
+// TODO: remove this
 struct MenuConfig {
     multiselect: bool,
 }
 
+#[derive(Debug)]
 struct Screen {
     bounds: (Pair, Pair),
+    bounds_offset: Option<(Pair, Pair)>,
     pos: Pair,
     items_on_screen: usize,
     side: ScreenSide,
@@ -457,6 +513,7 @@ impl Screen {
 
         Screen {
             bounds,
+            bounds_offset: None,
             pos,
             items_on_screen: 0,
             side,
@@ -468,12 +525,22 @@ impl Screen {
         self.bounds = self
             .side
             .get_bounds((Pair { y: 0, x: 0 }, Self::get_size()), self.width);
+        self.offset_bounds();
+    }
+
+    fn offset_bounds(&mut self) {
+        if let Some(offset) = &self.bounds_offset {
+            self.bounds.0.y += offset.0.y;
+            self.bounds.0.x += offset.0.x;
+            self.bounds.1.y += offset.1.y;
+            self.bounds.1.x += offset.1.x;
+        }
     }
 
     fn write_item(&mut self, item: &Item, highlight: bool) -> bool {
-        self.skiplines(1);
+        log(&self.pos);
 
-        if self.pos.y >= self.bounds.1.y - 1 {
+        if self.pos.y >= self.bounds.1.y {
             return false;
         }
 
@@ -499,6 +566,7 @@ impl Screen {
         }
 
         self.items_on_screen += 1;
+        self.skiplines(1);
 
         true
     }
@@ -563,6 +631,7 @@ impl Screen {
         self.bounds = self
             .side
             .get_bounds((Pair { y: 0, x: 0 }, Self::get_size()), self.width);
+        self.offset_bounds();
     }
 
     fn erase(&mut self) {
@@ -576,11 +645,12 @@ impl Screen {
         self.bounds.1.y as usize
     }
 
-    fn _max_x(&mut self) -> usize {
+    fn max_x(&mut self) -> usize {
         self.bounds.1.x as usize
     }
 
     fn reset_pos(&mut self) {
+        self.offset_bounds();
         self.pos.y = self.bounds.0.y;
         self.pos.x = self.bounds.0.x;
         self.items_on_screen = 0;
@@ -594,48 +664,43 @@ impl Screen {
 
     fn addstr(&mut self, s: &str) {
         let screen_width = self.bounds.1.x - self.bounds.0.x;
-        let mut chars = s.chars();
+        let chars = s.chars();
         let mut char_counter = 0;
         let mut curr_string = String::new();
 
-        loop {
-            let next_char = chars.next();
-            if let Some(c) = next_char {
-                // TODO: shorten the code here
-                let mut both = false;
-                if char_counter >= screen_width {
-                    self.addstr_clean(&curr_string);
-                    curr_string.clear();
-                    self.pos.y += 1;
-                    self.pos.x = self.bounds.0.x;
-                    char_counter = 0;
+        for c in chars {
+            // TODO: shorten the code here
+            let mut both = false;
+            if char_counter >= screen_width {
+                self.addstr_clean(&curr_string);
+                curr_string.clear();
+                self.pos.y += 1;
+                self.pos.x = self.bounds.0.x;
+                char_counter = 0;
 
-                    both = true;
+                both = true;
+            }
+            if c == '\n' {
+                self.addstr_clean(&curr_string);
+                curr_string.clear();
+                self.pos.y += 1;
+                self.pos.x = self.bounds.0.x;
+                char_counter = 0;
+                both &= true;
+                if both {
+                    self.pos.y -= 1;
                 }
-                if c == '\n' {
-                    self.addstr_clean(&curr_string);
-                    curr_string.clear();
-                    self.pos.y += 1;
-                    self.pos.x = self.bounds.0.x;
-                    char_counter = 0;
-                    both &= true;
-                    if both {
-                        self.pos.y -= 1;
-                    }
 
-                    continue;
-                }
-                if self.pos.y >= self.bounds.1.y {
-                    curr_string.clear();
-                    break;
-                }
-                assert!(c != '\n');
-                curr_string.push(c);
-                char_counter += 1;
-            } else {
+                continue;
+            }
+            if self.pos.y >= self.bounds.1.y {
+                curr_string.clear();
                 break;
             }
+            curr_string.push(c);
+            char_counter += 1;
         }
+
         assert!(!curr_string.contains('\n'));
         self.addstr_clean(&curr_string);
     }
@@ -663,6 +728,7 @@ impl Screen {
     }
 }
 
+#[derive(Debug)]
 struct Item<'a> {
     icon: &'a str,
     chosen_icon: &'a str,
@@ -717,28 +783,50 @@ impl<'a> fmt::Display for Item<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 struct Pair {
     y: i32,
     x: i32,
 }
 
 impl Pair {
-    fn clone(&self) -> Pair {
-        Pair {
-            y: self.y,
-            x: self.x,
+    fn zeroed() -> Self {
+        Self { y: 0, x: 0 }
+    }
+}
+
+impl ops::Add for Pair {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            y: self.y + other.y,
+            x: self.x + other.x,
+        }
+    }
+}
+impl ops::Sub for Pair {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            y: self.y - other.y,
+            x: self.x - other.x,
         }
     }
 }
 
-impl fmt::Display for Pair {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Pair({}, {})", self.y, self.x)
+#[derive(Debug, Clone)]
+struct Bounds(Pair, Pair);
+
+impl Bounds {
+    fn zeroed() -> Self {
+        Self(Pair::zeroed(), Pair::zeroed())
     }
 }
 
 /// Determines the side on which a pane should be located.
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum ScreenSide {
     Left,
     Right,
@@ -848,11 +936,14 @@ impl<D> Preview<D>
 where
     D: fmt::Display,
 {
-    fn new(func: DispFunc<D>, side: ScreenSide, width: f64) -> Preview<D> {
+    fn new(func: DispFunc<D>, side: ScreenSide, width: f64) -> Self {
         let box_screen = Screen::new(side, width);
-        let screen = Screen::new(side, width);
 
-        Preview {
+        let mut screen = Screen::new(side, width);
+        screen.bounds_offset =
+            Some((Pair { y: 1, x: 1 }, Pair { y: -1, x: -1 }));
+
+        Self {
             func,
             box_screen,
             screen,
@@ -861,48 +952,47 @@ where
     }
 
     fn draw_box(&mut self) {
+        log("drawing box with bounds");
+        log(&self.box_screen);
+        log("normal screen bouds");
+        log(&self.screen);
         self.box_screen.draw_box(ScreenSide::Full, 1.0, &self.label);
     }
 
     fn show(&mut self) {
         self.box_screen.show();
         self.screen.show();
-        self.update_bounds();
     }
 
-    fn update_bounds(&mut self) {
-        self.screen.bounds.0.y += 1;
-        self.screen.bounds.0.x += 1;
-        self.screen.bounds.1.y -= 1;
-        self.screen.bounds.1.x -= 1;
-    }
+    //     fn update_bounds(&mut self) {
+    //         self.screen.bounds.0.y += 1;
+    //         self.screen.bounds.0.x += 1;
+    //         self.screen.bounds.1.y -= 1;
+    //         self.screen.bounds.1.x -= 1;
+    //     }
 
     fn refresh(&mut self) {
         self.screen.refresh();
         self.box_screen.refresh();
-        self.update_bounds();
     }
 
     fn set_pos(&mut self, side: ScreenSide, width: f64) {
         self.screen.set_pos(side, width);
         self.box_screen.set_pos(side, width);
-        self.update_bounds();
     }
 
     fn set_label(&mut self, label: String) {
         self.label = Some(label);
     }
 }
-
-// fn log(s: &str) -> std::io::Result<()> {
-//     let mut file = OpenOptions::new()
-//         .write(true)
-//         .append(true)
-//         .open("choose.log")
-//         .unwrap();
-//     writeln!(file, "{}", s)?;
-//     Ok(())
-// }
+fn log(s: impl fmt::Debug) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open("choose.log")
+        .unwrap();
+    writeln!(file, "{:?}", s).unwrap();
+}
 
 fn init_curses() {
     // Allow unicode characters
