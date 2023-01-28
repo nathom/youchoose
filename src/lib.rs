@@ -98,8 +98,8 @@ where
     I: Iterator<Item = D>,
 {
     iter: Peekable<I>,
-    screen: Screen,
-    preview: Option<Preview<D>>,
+    screen: Screen<'a>,
+    preview: Option<Preview<'a, D>>,
     item_icon: &'a str,
     chosen_item_icon: &'a str,
     selection: Vec<usize>,
@@ -124,7 +124,7 @@ where
     /// Create a new menu object. The iterable passed in must contain displayable
     /// items.
     pub fn new(iter: I) -> Menu<'a, I, D> {
-        let screen = Screen::new(ScreenSide::Full, 0.5);
+        let screen = Screen::new(ScreenSide::Full, 0.5, None, false);
 
         let item_icon: &'a str = "❯";
         let chosen_item_icon: &'a str = "*";
@@ -212,6 +212,13 @@ where
         self.yield_item(end);
 
         self.screen.reset_pos();
+        if self.screen.boxed {
+            self.screen.draw_box(self.screen.side, 1.0);
+            self.screen.reset_pos();
+        } else if self.screen.title.is_some() {
+            self.screen.draw_title();
+            self.screen.reset_pos();
+        }
         if let Some(prev) = &mut self.preview {
             prev.draw_box();
             prev.screen.reset_pos();
@@ -317,6 +324,18 @@ where
         Pass
     }
 
+    /// Add a title above the menu.
+    pub fn title(mut self, title: &'a str) -> Menu<'a, I, D> {
+        self.screen.title = Some(title);
+        self
+    }
+
+    /// Add a box around the menu.
+    pub fn boxed(mut self) -> Menu<'a, I, D> {
+        self.screen.boxed = true;
+        self
+    }
+
     /// Add a preview pane that displays the result of applying the function
     /// passed in to each item in the iterable. The function must return a
     /// String.
@@ -365,7 +384,7 @@ where
 
     /// Sets the text displayed on top of the preview box. It is recommended to surround the label
     /// with spaces for aesthetic reasons. If it is not set, `" preview "` will be used.
-    pub fn preview_label(mut self, label: String) -> Menu<'a, I, D> {
+    pub fn preview_label(mut self, label: &'a str) -> Menu<'a, I, D> {
         self.preview
             .as_mut()
             .expect("Must create preview before settting it's position")
@@ -438,16 +457,23 @@ struct MenuConfig {
     multiselect: bool,
 }
 
-struct Screen {
+struct Screen<'a> {
     bounds: (Pair, Pair),
     pos: Pair,
     items_on_screen: usize,
     side: ScreenSide,
     width: f64,
+    title: Option<&'a str>,
+    boxed: bool,
 }
 
-impl Screen {
-    fn new(side: ScreenSide, width: f64) -> Screen {
+impl<'a> Screen<'a> {
+    fn new(
+        side: ScreenSide,
+        width: f64,
+        title: Option<&'a str>,
+        boxed: bool,
+    ) -> Screen<'a> {
         assert!(width > 0.0 && width <= 1.0);
 
         let bounds = (Pair { y: 0, x: 0 }, Pair { y: 0, x: 0 });
@@ -459,6 +485,8 @@ impl Screen {
             items_on_screen: 0,
             side,
             width,
+            title,
+            boxed,
         }
     }
 
@@ -501,12 +529,7 @@ impl Screen {
         true
     }
 
-    fn draw_box(
-        &mut self,
-        side: ScreenSide,
-        width: f64,
-        label: &Option<String>,
-    ) {
+    fn draw_box(&mut self, side: ScreenSide, width: f64) {
         let bounds = side
             .get_bounds((self.bounds.0.clone(), self.bounds.1.clone()), width);
 
@@ -524,15 +547,13 @@ impl Screen {
         self.pos.x = bounds.0.x;
         self.pos.y = bounds.0.y;
         self.addstr(corner_tl);
-        let label_len = match label {
+        // Draw title if present
+        let label_len = match self.title {
             Some(label) => {
-                self.addstr(&label);
+                self.addstr(label);
                 label.len()
             }
-            None => {
-                self.addstr(" preview ");
-                9
-            }
+            None => 0,
         };
         self.addstr(&hor_line.repeat(box_width - label_len - 2));
         self.addstr(corner_tr);
@@ -550,6 +571,21 @@ impl Screen {
         self.addstr(corner_bl);
         self.addstr(&hor_line.to_string().repeat(box_width - 2));
         self.addstr(corner_br);
+    }
+
+    fn draw_title(&mut self) {
+        let bounds = ScreenSide::Full.get_bounds(
+            (self.bounds.0.clone(), self.bounds.1.clone()),
+            self.width,
+        );
+
+        // top line
+        self.pos.x = bounds.0.x;
+        self.pos.y = bounds.0.y;
+        match self.title {
+            Some(label) => self.addstr(label),
+            None => (),
+        }
     }
 
     fn get_key(&self) -> i32 {
@@ -820,7 +856,7 @@ where
     func: Box<dyn Fn(D) -> String>,
 }
 
-impl<D> DispFunc<D>
+impl<'a, D> DispFunc<D>
 where
     D: fmt::Display,
 {
@@ -832,34 +868,32 @@ where
     }
 }
 
-struct Preview<D>
+struct Preview<'a, D>
 where
     D: fmt::Display,
 {
     func: DispFunc<D>,
-    box_screen: Screen,
-    screen: Screen,
-    label: Option<String>,
+    box_screen: Screen<'a>,
+    screen: Screen<'a>,
 }
 
-impl<D> Preview<D>
+impl<'a, D> Preview<'a, D>
 where
     D: fmt::Display,
 {
-    fn new(func: DispFunc<D>, side: ScreenSide, width: f64) -> Preview<D> {
-        let box_screen = Screen::new(side, width);
-        let screen = Screen::new(side, width);
+    fn new(func: DispFunc<D>, side: ScreenSide, width: f64) -> Preview<'a, D> {
+        let box_screen = Screen::new(side, width, Some(" preview "), true);
+        let screen = Screen::new(side, width, None, false);
 
         Preview {
             func,
             box_screen,
             screen,
-            label: None,
         }
     }
 
     fn draw_box(&mut self) {
-        self.box_screen.draw_box(ScreenSide::Full, 1.0, &self.label);
+        self.box_screen.draw_box(ScreenSide::Full, 1.0);
     }
 
     fn show(&mut self) {
@@ -887,8 +921,8 @@ where
         self.update_bounds();
     }
 
-    fn set_label(&mut self, label: String) {
-        self.label = Some(label);
+    fn set_label(&mut self, label: &'a str) {
+        self.screen.title = Some(label);
     }
 }
 
