@@ -12,7 +12,7 @@ fn main() {
         .add_up_key('u' as i32) // Bind the 'u' key to up
         .add_down_key('d' as i32) // Bind the 'd' key to down
         .add_select_key('.' as i32) // Bind the '.' key to select
-        .title(" A ver very very very very very long custom title ") // Sets the text at the top of the main pane
+        .title(" A custom title ") // Sets the text at the top of the main pane
         .boxed(); // Draws a box around the menu
 
     let _choice = menu.show();
