@@ -364,7 +364,7 @@ where
         self.screen.set_pos(!side, 1.0 - width);
         self.preview
             .as_mut()
-            .expect("Must create preview before settting it's position")
+            .expect("Must create preview before setting it's position")
             .set_pos(side, width);
 
         self
