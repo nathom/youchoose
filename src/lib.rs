@@ -387,7 +387,7 @@ where
     pub fn preview_label(mut self, label: &'a str) -> Menu<'a, I, D> {
         self.preview
             .as_mut()
-            .expect("Must create preview before settting it's position")
+            .expect("Must create preview before setting it's position")
             .set_label(label);
         self
     }
@@ -922,7 +922,7 @@ where
     }
 
     fn set_label(&mut self, label: &'a str) {
-        self.screen.title = Some(label);
+        self.box_screen.title = Some(label);
     }
 }
 
